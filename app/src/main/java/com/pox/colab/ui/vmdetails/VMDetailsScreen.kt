@@ -10,9 +10,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +56,7 @@ fun VMDetailsScreen(
     val vm = vms.find { it.id == vmId }
 
     var selectedTabIndex by remember(initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
+    var showTunnelDialog by remember { mutableStateOf(false) }
 
     if (vm == null) {
         Scaffold(
@@ -85,6 +87,16 @@ fun VMDetailsScreen(
         return
     }
 
+    if (showTunnelDialog) {
+        ConfigureTunnelDialog(
+            vm = vm,
+            onDismiss = { showTunnelDialog = false },
+            onSave = { newEndpoint ->
+                repository.updateTunnelEndpoint(vm.id, newEndpoint)
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -103,8 +115,10 @@ fun VMDetailsScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            val hasHost = vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" || !vm.tunnelUrl.isNullOrBlank()
                             Text(
-                                text = "${vm.hardwareAccelerator.label} • ${vm.sshConfig.resilientProtocol.name}",
+                                text = if (hasHost) "${vm.sshConfig.host}:${vm.sshConfig.port} • ${vm.sshConfig.resilientProtocol.label}"
+                                       else "Unconfigured Tunnel • ${vm.hardwareAccelerator.label}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -119,6 +133,17 @@ fun VMDetailsScreen(
                     }
                 },
                 actions = {
+                    // Quick Tunnel Config
+                    IconButton(onClick = { showTunnelDialog = true }) {
+                        val hasHost = vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" || !vm.tunnelUrl.isNullOrBlank()
+                        Icon(
+                            imageVector = Icons.Default.Cable,
+                            contentDescription = "Configure Tunnel Endpoint",
+                            tint = if (hasHost) ColabOrange else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Power toggle
                     IconButton(
                         onClick = {
                             if (vm.status == VMStatus.RUNNING) {
@@ -192,9 +217,22 @@ fun VMDetailsScreen(
 
             Box(modifier = Modifier.weight(1f)) {
                 when (selectedTabIndex) {
-                    0 -> DashboardTab(vm = vm, repository = repository)
-                    1 -> SSHTab(vm = vm)
-                    2 -> FilesTab(vm = vm)
+                    0 -> DashboardTab(
+                        vm = vm,
+                        repository = repository,
+                        onConfigureTunnel = { showTunnelDialog = true }
+                    )
+                    1 -> SSHTab(
+                        vm = vm,
+                        onConfigureTunnel = { showTunnelDialog = true },
+                        onMetricsUpdated = { metrics ->
+                            repository.updateMetrics(vm.id, metrics)
+                        }
+                    )
+                    2 -> FilesTab(
+                        vm = vm,
+                        onConfigureTunnel = { showTunnelDialog = true }
+                    )
                 }
             }
         }

@@ -1,10 +1,14 @@
 package com.pox.colab.engine
 
+import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelShell
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
+import com.pox.colab.data.VMRepository
 import com.pox.colab.model.ColabVM
+import com.pox.colab.model.ResilientProtocol
 import com.pox.colab.model.SSHAuthMethod
+import com.pox.colab.model.VMMetrics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,7 +39,8 @@ data class TerminalLine(
 
 class ResilientSSHManager(
     private val vm: ColabVM,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    var onMetricsUpdated: ((VMMetrics) -> Unit)? = null
 ) {
     private val _connectionState = MutableStateFlow(SSHConnectionState.DISCONNECTED)
     val connectionState: StateFlow<SSHConnectionState> = _connectionState.asStateFlow()
@@ -56,19 +61,32 @@ class ResilientSSHManager(
     private val jsch = JSch()
 
     init {
+        val (h, p) = resolveHostAndPort()
         appendSystemNotice("==================================================")
-        appendSystemNotice(" Colab Resilient Terminal (${vm.sshConfig.resilientProtocol.name})")
-        appendSystemNotice(" Target: ${vm.name} | Host: ${vm.sshConfig.host}:${vm.sshConfig.port}")
-        appendSystemNotice(" Resilient Tmux Session: ${vm.sshConfig.tmuxSessionName}")
+        appendSystemNotice(" Colab Resilient Terminal (${vm.sshConfig.resilientProtocol.label})")
+        appendSystemNotice(" Target: ${vm.name} | Host: ${if (h.isNotBlank()) "$h:$p" else "[Unconfigured]"}")
+        if (vm.sshConfig.resilientProtocol == ResilientProtocol.TMUX_SSH) {
+            appendSystemNotice(" Persistent Tmux Session: ${vm.sshConfig.tmuxSessionName}")
+        }
         appendSystemNotice("==================================================")
     }
 
+    fun resolveHostAndPort(): Pair<String, Int> {
+        val raw = if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost") {
+            "${vm.sshConfig.host}:${vm.sshConfig.port}"
+        } else {
+            vm.tunnelUrl ?: ""
+        }
+        return VMRepository.parseEndpoint(raw)
+    }
+
     fun connect() {
-        if (vm.sshConfig.host.isBlank() || vm.sshConfig.host == "localhost" && vm.tunnelUrl.isNullOrBlank()) {
+        val (host, _) = resolveHostAndPort()
+        if (host.isBlank()) {
             _connectionState.value = SSHConnectionState.DISCONNECTED
-            _statusMessage.value = "Tunnel URL required to connect"
+            _statusMessage.value = "Tunnel endpoint required"
             appendSystemNotice("[!] No active tunnel host specified for VM '${vm.name}'.")
-            appendSystemNotice("[!] Run the generated bootstrap script in Google Colab to obtain a live tunnel URL.")
+            appendSystemNotice("[!] Run the bootstrap script in Colab and configure the tunnel endpoint (e.g. bore.pub:38491).")
             return
         }
 
@@ -122,7 +140,7 @@ class ResilientSSHManager(
                     out.write(byteArrayOf(3))
                     out.flush()
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 triggerAutoReconnect()
             }
         }
@@ -145,7 +163,7 @@ class ResilientSSHManager(
                     it.write(bytes)
                     it.flush()
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 triggerAutoReconnect()
             }
         }
@@ -156,6 +174,7 @@ class ResilientSSHManager(
     }
 
     private suspend fun runConnectionSupervisor() {
+        var cycle = 0
         while (scope.isActive && !isUserIntentionallyDisconnected) {
             if (_connectionState.value == SSHConnectionState.DISCONNECTED ||
                 _connectionState.value == SSHConnectionState.RECONNECTING ||
@@ -164,10 +183,15 @@ class ResilientSSHManager(
                 attemptConnect()
             }
 
-            delay((vm.sshConfig.keepAliveIntervalSec * 1000L).coerceAtLeast(5000L))
+            delay((vm.sshConfig.keepAliveIntervalSec * 1000L).coerceAtLeast(4000L))
 
             if (_connectionState.value == SSHConnectionState.CONNECTED) {
                 checkConnectionHealth()
+                cycle++
+                // Poll real metrics over SSH exec channel every ~8 seconds
+                if (cycle % 2 == 0) {
+                    pollTelemetryOverSSH()
+                }
             }
         }
     }
@@ -175,11 +199,18 @@ class ResilientSSHManager(
     private suspend fun attemptConnect() {
         withContext(Dispatchers.IO) {
             try {
-                _connectionState.value = SSHConnectionState.CONNECTING
-                _statusMessage.value = "Connecting to ${vm.sshConfig.host}:${vm.sshConfig.port}..."
-                appendSystemNotice("[*] Connecting to ${vm.sshConfig.host}:${vm.sshConfig.port}...")
+                val (targetHost, targetPort) = resolveHostAndPort()
+                if (targetHost.isBlank()) {
+                    _connectionState.value = SSHConnectionState.DISCONNECTED
+                    _statusMessage.value = "Tunnel endpoint required"
+                    return@withContext
+                }
 
-                val session = jsch.getSession(vm.sshConfig.username, vm.sshConfig.host, vm.sshConfig.port)
+                _connectionState.value = SSHConnectionState.CONNECTING
+                _statusMessage.value = "Connecting to $targetHost:$targetPort..."
+                appendSystemNotice("[*] Connecting to $targetHost:$targetPort...")
+
+                val session = jsch.getSession(vm.sshConfig.username, targetHost, targetPort)
                 if (vm.sshConfig.authMethod == SSHAuthMethod.PASSWORD) {
                     session.setPassword(vm.sshConfig.password)
                 }
@@ -194,7 +225,7 @@ class ResilientSSHManager(
 
                 val channel = session.openChannel("shell") as ChannelShell
                 channel.setPtyType("xterm-256color")
-                
+
                 val outputStream = channel.outputStream
                 val inputStream = channel.inputStream
 
@@ -204,12 +235,15 @@ class ResilientSSHManager(
 
                 _connectionState.value = SSHConnectionState.CONNECTED
                 _statusMessage.value = "Connected"
-                appendSystemNotice("[+] Attached to session: '${vm.sshConfig.tmuxSessionName}'")
 
-                // Auto attach tmux session
-                val attachCmd = "tmux new-session -A -s ${vm.sshConfig.tmuxSessionName}\n"
-                outputStream.write(attachCmd.toByteArray())
-                outputStream.flush()
+                if (vm.sshConfig.resilientProtocol == ResilientProtocol.TMUX_SSH) {
+                    appendSystemNotice("[+] Attached to persistent tmux session: '${vm.sshConfig.tmuxSessionName}'")
+                    val attachCmd = "tmux new-session -A -s ${vm.sshConfig.tmuxSessionName}\n"
+                    outputStream.write(attachCmd.toByteArray())
+                    outputStream.flush()
+                } else {
+                    appendSystemNotice("[+] Interactive SSH2 shell established.")
+                }
 
                 startStreamReader(inputStream)
 
@@ -251,6 +285,26 @@ class ResilientSSHManager(
         } catch (e: Exception) {
             appendSystemNotice("[!] Keep-alive failed: ${e.message}")
             triggerAutoReconnect()
+        }
+    }
+
+    private suspend fun pollTelemetryOverSSH() = withContext(Dispatchers.IO) {
+        try {
+            val session = jschSession
+            if (session == null || !session.isConnected) return@withContext
+            val execChannel = session.openChannel("exec") as ChannelExec
+            execChannel.setCommand("cat /tmp/colab_metrics.json 2>/dev/null || cat /content/alpine_rootfs/tmp/colab_metrics.json 2>/dev/null || true")
+            val inStream = execChannel.inputStream
+            execChannel.connect(3000)
+            val jsonStr = inStream.bufferedReader().use { it.readText() }.trim()
+            execChannel.disconnect()
+
+            if (jsonStr.isNotBlank() && jsonStr.startsWith("{") && jsonStr.contains("ram_total_bytes")) {
+                val metrics = TelemetryEngine.parseMetricsJson(jsonStr)
+                onMetricsUpdated?.invoke(metrics)
+            }
+        } catch (_: Exception) {
+            // Non-fatal telemetry polling exception
         }
     }
 

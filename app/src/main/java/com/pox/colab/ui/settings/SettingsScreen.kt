@@ -42,6 +42,8 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +63,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pox.colab.R
+import kotlinx.coroutines.launch
 import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
 import com.pox.colab.model.ColabAccount
@@ -469,13 +473,15 @@ fun SignInAccountDialog(
     onConfirm: (email: String, name: String, token: String, tier: String) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
-    var token by remember { mutableStateOf("") }
+    var tokenOrCode by remember { mutableStateOf("") }
     var selectedTier by remember { mutableStateOf("Free") }
+    var isExchanging by remember { mutableStateOf(false) }
 
-    // Official Google Colab OAuth 2.0 endpoint (from google-colab-cli InstalledAppFlow)
-    val oauthUrl = "https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com&redirect_uri=https%3A%2F%2Fsdk.cloud.google.com%2Fapplicationdefaultauthcode.html&scope=openid%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcolaboratory%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file&access_type=offline&prompt=consent"
+    // Dynamically generated OAuth URL per official colab_cli/auth.py Remote Flow
+    val oauthUrl = remember { com.pox.colab.engine.ColabAuthEngine.buildAuthorizationUrl() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -493,10 +499,12 @@ fun SignInAccountDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // OAuth Link Section (Copy only - no auto browser launch)
+                // Colab CLI Generated OAuth Flow Banner
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -509,47 +517,50 @@ fun SignInAccountDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "Colab Auth / Token URL",
+                                text = "Colab CLI OAuth URL",
                                 style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
 
-                            IconButton(
+                            OutlinedButton(
                                 onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Colab OAuth URL", oauthUrl)
+                                    val clip = ClipData.newPlainText("Colab CLI Auth URL", oauthUrl)
                                     clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Auth link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Colab CLI Auth URL copied to clipboard!", Toast.LENGTH_SHORT).show()
                                 },
-                                modifier = Modifier.size(32.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
                                     contentDescription = "Copy Auth URL",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary
+                                    modifier = Modifier.size(14.dp)
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Copy Link", fontSize = 11.sp)
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
                             text = oauthUrl,
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
-                            text = "Copy this link to your desktop or device browser to retrieve your Colab auth token or session cookie, then paste below.",
+                            text = "1. Copy this link to any browser.\n2. Authorize with your Google Account.\n3. Copy the authorization code shown on Google's landing page and paste below.",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
                         )
                     }
                 }
@@ -574,15 +585,43 @@ fun SignInAccountDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                OutlinedTextField(
-                    value = token,
-                    onValueChange = { token = it },
-                    label = { Text("Colab Auth Token / Cookie") },
-                    placeholder = { Text("Enter session cookie or token") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OutlinedTextField(
+                        value = tokenOrCode,
+                        onValueChange = { tokenOrCode = it },
+                        label = { Text("Colab Auth Code / Token") },
+                        placeholder = { Text("Paste Google authorization code (4/0A...) or token") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (tokenOrCode.isNotBlank() && (tokenOrCode.startsWith("4/") || !tokenOrCode.startsWith("ya29."))) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        isExchanging = true
+                                        val res = com.pox.colab.engine.ColabAuthEngine.exchangeAuthCode(tokenOrCode.trim())
+                                        isExchanging = false
+                                        res.onSuccess { exchangedToken ->
+                                            tokenOrCode = exchangedToken
+                                            Toast.makeText(context, "Code exchanged for OAuth Token!", Toast.LENGTH_SHORT).show()
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, "Exchange: ${err.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                                enabled = !isExchanging
+                            ) {
+                                Text(if (isExchanging) "Exchanging Code..." else "Exchange Code for Token", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Subscription Tier", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
@@ -613,7 +652,7 @@ fun SignInAccountDialog(
                         onConfirm(
                             email.trim(),
                             displayName.trim().ifEmpty { email.substringBefore("@") },
-                            token.trim(),
+                            tokenOrCode.trim(),
                             selectedTier
                         )
                     }
@@ -634,3 +673,4 @@ fun SignInAccountDialog(
         }
     )
 }
+

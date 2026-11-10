@@ -83,21 +83,26 @@ class VMRepository(
         hardwareAccelerator: HardwareAccelerator,
         tunnelProvider: TunnelProvider,
         resilientProtocol: ResilientProtocol,
-        password: String
+        password: String,
+        tunnelEndpoint: String = ""
     ): ColabVM {
+        val (host, port) = parseEndpoint(tunnelEndpoint)
+        val account = _accounts.value.find { it.id == accountId }
         val initialVM = ColabVM(
             name = name,
             accountId = accountId,
             hardwareAccelerator = hardwareAccelerator,
             tunnelProvider = tunnelProvider,
+            tunnelUrl = tunnelEndpoint.trim().takeIf { it.isNotBlank() },
             sshConfig = com.pox.colab.model.SSHSessionConfig(
+                host = host,
+                port = port,
                 resilientProtocol = resilientProtocol,
-                port = 22,
                 password = password
             )
         )
         val completeVM = initialVM.copy(
-            bootstrapScript = AlpineBootstrapGenerator.generateBootstrapScript(initialVM)
+            bootstrapScript = AlpineBootstrapGenerator.generateBootstrapScript(initialVM, account?.tokenOrCookie)
         )
         val updated = _vms.value + completeVM
         _vms.value = updated
@@ -109,6 +114,30 @@ class VMRepository(
         val updated = _vms.value.map { if (it.id == vm.id) vm else it }
         _vms.value = updated
         preferences.saveVMs(updated)
+    }
+
+    fun updateTunnelEndpoint(id: String, rawEndpoint: String) {
+        val target = getVMById(id) ?: return
+        val (host, port) = parseEndpoint(rawEndpoint)
+        val updated = target.copy(
+            tunnelUrl = rawEndpoint.trim(),
+            sshConfig = target.sshConfig.copy(
+                host = host,
+                port = port
+            )
+        )
+        updateVM(updated)
+    }
+
+    fun updateMetrics(id: String, metrics: VMMetrics) {
+        val target = getVMById(id) ?: return
+        val isAlive = metrics.cpuUsagePercent > 0f || metrics.ramTotalBytes > 0L || metrics.diskTotalBytes > 0L
+        val updated = target.copy(
+            metrics = metrics,
+            status = if (isAlive && target.status == VMStatus.STOPPED) VMStatus.RUNNING else target.status,
+            lastConnectedTimestamp = System.currentTimeMillis()
+        )
+        updateVM(updated)
     }
 
     fun deleteVM(id: String) {
@@ -135,4 +164,24 @@ class VMRepository(
         val target = getVMById(id) ?: return
         updateVM(target.copy(status = VMStatus.STOPPED))
     }
+
+    companion object {
+        fun parseEndpoint(raw: String): Pair<String, Int> {
+            var s = raw.trim()
+            if (s.isBlank()) return Pair("", 22)
+            if (s.startsWith("tcp://", ignoreCase = true)) s = s.substring(6)
+            if (s.startsWith("ssh://", ignoreCase = true)) s = s.substring(6)
+            if (s.startsWith("http://", ignoreCase = true)) s = s.substring(7)
+            if (s.startsWith("https://", ignoreCase = true)) s = s.substring(8)
+            s = s.substringBefore("/").trim()
+            return if (s.contains(":")) {
+                val host = s.substringBefore(":")
+                val port = s.substringAfter(":").toIntOrNull() ?: 22
+                Pair(host, port)
+            } else {
+                Pair(s, 22)
+            }
+        }
+    }
 }
+

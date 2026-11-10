@@ -77,14 +77,18 @@ import com.pox.colab.theme.TerminalBackground
 import com.pox.colab.theme.TerminalForeground
 import kotlinx.coroutines.launch
 
+import androidx.compose.material.icons.filled.Cable
+import com.pox.colab.theme.ColabOrange
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesTab(
-    vm: ColabVM
+    vm: ColabVM,
+    onConfigureTunnel: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val fileEngine = remember(vm.id) {
+    val fileEngine = remember(vm.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
         FileManagerEngine(context, vm)
     }
 
@@ -92,6 +96,9 @@ fun FilesTab(
     val files by fileEngine.files.collectAsState()
     val isLoading by fileEngine.isLoading.collectAsState()
     val statusNotice by fileEngine.statusNotice.collectAsState()
+
+    val (host, _) = fileEngine.resolveHostAndPort()
+    val hasTunnel = host.isNotBlank()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedFileForPreview by remember { mutableStateOf<RemoteFile?>(null) }
@@ -113,6 +120,50 @@ fun FilesTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (!hasTunnel) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Cable,
+                            contentDescription = null,
+                            tint = ColabOrange,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Tunnel host required to browse remote SFTP",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Button(
+                        onClick = onConfigureTunnel,
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
+                    ) {
+                        Text("Set Host", fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
         // Navigation Bar & Breadcrumb
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerLow,

@@ -7,16 +7,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeveloperBoard
+import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -29,7 +27,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,15 +59,17 @@ fun AddVMDialog(
         accelerator: HardwareAccelerator,
         tunnelProvider: TunnelProvider,
         protocol: ResilientProtocol,
-        password: String
+        password: String,
+        tunnelEndpoint: String
     ) -> Unit
 ) {
     var vmName by remember { mutableStateOf("") }
     var rootPassword by remember { mutableStateOf("") }
+    var tunnelEndpoint by remember { mutableStateOf("") }
     var selectedAccountId by remember { mutableStateOf(activeAccountId ?: accounts.firstOrNull()?.id ?: "") }
     var selectedAccelerator by remember { mutableStateOf(HardwareAccelerator.T4_GPU) }
     var selectedTunnel by remember { mutableStateOf(TunnelProvider.CLOUDFLARE) }
-    var selectedProtocol by remember { mutableStateOf(ResilientProtocol.MOSH) }
+    var selectedProtocol by remember { mutableStateOf(ResilientProtocol.TMUX_SSH) }
 
     var accountDropdownExpanded by remember { mutableStateOf(false) }
 
@@ -129,6 +128,21 @@ fun AddVMDialog(
                     }
                 )
 
+                // Tunnel Host / Port
+                OutlinedTextField(
+                    value = tunnelEndpoint,
+                    onValueChange = { tunnelEndpoint = it },
+                    label = { Text("Tunnel Endpoint (Optional)") },
+                    placeholder = { Text("e.g. bore.pub:38491 or trycloudflare.com") },
+                    supportingText = { Text("Can be entered now or configured anytime in VM details.") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = {
+                        Icon(Icons.Default.Cable, contentDescription = null, tint = ColabOrange)
+                    }
+                )
+
                 // Account Selection
                 if (accounts.isNotEmpty()) {
                     ExposedDropdownMenuBox(
@@ -169,14 +183,14 @@ fun AddVMDialog(
                     }
                 }
 
-                // Hardware Accelerator
+                // Accelerator Selection
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Hardware Accelerator", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                    HardwareAccelerator.values().forEach { acc ->
+                    HardwareAccelerator.values().forEach { accel ->
                         FilterChip(
-                            selected = selectedAccelerator == acc,
-                            onClick = { selectedAccelerator = acc },
-                            label = { Text(acc.label, fontSize = 12.sp) },
+                            selected = selectedAccelerator == accel,
+                            onClick = { selectedAccelerator = accel },
+                            label = { Text(accel.label, fontSize = 12.sp) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = ColabOrange.copy(alpha = 0.15f),
@@ -186,14 +200,14 @@ fun AddVMDialog(
                     }
                 }
 
-                // Tunnel Provider
+                // Tunnel Provider Selection
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Tunnel Provider", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                    TunnelProvider.values().forEach { provider ->
+                    TunnelProvider.values().forEach { tunnel ->
                         FilterChip(
-                            selected = selectedTunnel == provider,
-                            onClick = { selectedTunnel = provider },
-                            label = { Text(provider.label, fontSize = 12.sp) },
+                            selected = selectedTunnel == tunnel,
+                            onClick = { selectedTunnel = tunnel },
+                            label = { Text(tunnel.label, fontSize = 12.sp) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = ColabOrange.copy(alpha = 0.15f),
@@ -205,20 +219,16 @@ fun AddVMDialog(
 
                 // Resilient SSH Protocol
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Resilient Connection", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Connection Protocol", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     ResilientProtocol.values().forEach { proto ->
                         FilterChip(
                             selected = selectedProtocol == proto,
                             onClick = { selectedProtocol = proto },
                             label = {
-                                Text(
-                                    when (proto) {
-                                        ResilientProtocol.MOSH -> "Mosh (UDP Mobile Shell)"
-                                        ResilientProtocol.TMUX_SSH -> "Persistent Tmux Daemon"
-                                        ResilientProtocol.AUTOSSH -> "AutoSSH Heartbeat"
-                                    },
-                                    fontSize = 12.sp
-                                )
+                                Column(modifier = Modifier.padding(vertical = 2.dp)) {
+                                    Text(proto.label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                    Text(proto.description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = FilterChipDefaults.filterChipColors(
@@ -240,7 +250,8 @@ fun AddVMDialog(
                             selectedAccelerator,
                             selectedTunnel,
                             selectedProtocol,
-                            rootPassword.trim()
+                            rootPassword.trim(),
+                            tunnelEndpoint.trim()
                         )
                     }
                 },

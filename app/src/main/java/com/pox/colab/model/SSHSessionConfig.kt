@@ -5,10 +5,9 @@ enum class SSHAuthMethod {
     PRIVATE_KEY
 }
 
-enum class ResilientProtocol {
-    MOSH,       // Mobile Shell (State Synchronization Protocol over UDP - roams and survives disconnection)
-    TMUX_SSH,   // SSH attached to tmux session with auto-reconnection daemon
-    AUTOSSH     // Tunnel monitored with heartbeat probes
+enum class ResilientProtocol(val label: String, val description: String) {
+    TMUX_SSH("SSH + Tmux Supervisor", "Interactive SSH2 terminal attached to persistent tmux session with auto-reconnection supervisor"),
+    DIRECT_SSH("Standard SSH2", "Direct interactive SSH2 shell channel")
 }
 
 data class SSHSessionConfig(
@@ -18,10 +17,10 @@ data class SSHSessionConfig(
     val authMethod: SSHAuthMethod = SSHAuthMethod.PASSWORD,
     val password: String = "",
     val privateKey: String? = null,
-    val resilientProtocol: ResilientProtocol = ResilientProtocol.MOSH,
-    val moshPort: Int = 60001,
+    val resilientProtocol: ResilientProtocol = ResilientProtocol.TMUX_SSH,
     val tmuxSessionName: String = "colab_session",
     val autoReconnect: Boolean = true,
     val keepAliveIntervalSec: Int = 10,
     val maxReconnectRetries: Int = 999
 )
+

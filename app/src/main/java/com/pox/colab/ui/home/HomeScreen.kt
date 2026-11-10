@@ -307,8 +307,8 @@ fun HomeScreen(
                 accounts = accounts,
                 activeAccountId = activeAccount?.id,
                 onDismiss = { showAddDialog = false },
-                onConfirm = { name, accId, accelerator, tunnel, proto, password ->
-                    repository.addVM(name, accId, accelerator, tunnel, proto, password)
+                onConfirm = { name, accId, accelerator, tunnel, proto, password, tunnelEndpoint ->
+                    repository.addVM(name, accId, accelerator, tunnel, proto, password, tunnelEndpoint)
                     showAddDialog = false
                 }
             )
