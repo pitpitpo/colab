@@ -18,9 +18,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -33,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pox.colab.data.VMRepository
 import com.pox.colab.model.VMStatus
@@ -56,7 +58,7 @@ fun VMDetailsScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("VM Not Found") },
+                    title = { Text("VM Not Found", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -81,19 +83,26 @@ fun VMDetailsScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
                         StatusIndicatorDot(status = vm.status)
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
                                 text = vm.name,
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = "${vm.hardwareAccelerator.label} • ${vm.sshConfig.resilientProtocol.name}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -124,57 +133,52 @@ fun VMDetailsScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
+        },
+        bottomBar = {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
+                NavigationBarItem(
+                    selected = selectedTabIndex == 0,
+                    onClick = { selectedTabIndex = 0 },
+                    icon = { Icon(Icons.Default.Speed, contentDescription = "Dashboard") },
+                    label = { Text("Dashboard", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = ColabOrange,
+                        selectedTextColor = ColabOrange,
+                        indicatorColor = ColabOrange.copy(alpha = 0.15f)
+                    )
+                )
+                NavigationBarItem(
+                    selected = selectedTabIndex == 1,
+                    onClick = { selectedTabIndex = 1 },
+                    icon = { Icon(Icons.Default.Terminal, contentDescription = "SSH") },
+                    label = { Text("SSH", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = ColabOrange,
+                        selectedTextColor = ColabOrange,
+                        indicatorColor = ColabOrange.copy(alpha = 0.15f)
+                    )
+                )
+                NavigationBarItem(
+                    selected = selectedTabIndex == 2,
+                    onClick = { selectedTabIndex = 2 },
+                    icon = { Icon(Icons.Default.Folder, contentDescription = "Files") },
+                    label = { Text("Files", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = ColabOrange,
+                        selectedTextColor = ColabOrange,
+                        indicatorColor = ColabOrange.copy(alpha = 0.15f)
+                    )
+                )
+            }
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Material 3 Tabs Row
-            PrimaryTabRow(
-                selectedTabIndex = selectedTabIndex,
-                containerColor = MaterialTheme.colorScheme.surface
-            ) {
-                Tab(
-                    selected = selectedTabIndex == 0,
-                    onClick = { selectedTabIndex = 0 },
-                    text = { Text("Dashboard") },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Speed,
-                            contentDescription = "Dashboard",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTabIndex == 1,
-                    onClick = { selectedTabIndex = 1 },
-                    text = { Text("SSH (Never Die)") },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = "SSH",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTabIndex == 2,
-                    onClick = { selectedTabIndex = 2 },
-                    text = { Text("Files") },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Folder,
-                            contentDescription = "Files",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                )
-            }
-
-            // Tab Content
             when (selectedTabIndex) {
                 0 -> DashboardTab(vm = vm, repository = repository)
                 1 -> SSHTab(vm = vm)

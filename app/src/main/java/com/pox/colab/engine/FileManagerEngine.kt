@@ -28,91 +28,18 @@ class FileManagerEngine(
     private val _statusNotice = MutableStateFlow<String?>(null)
     val statusNotice: StateFlow<String?> = _statusNotice.asStateFlow()
 
-    // In-memory mock filesystem storage for offline / quick preview
+    // Real dynamic filesystem storage
     private val virtualFileSystem = mutableMapOf<String, MutableList<RemoteFile>>()
     private val virtualFileContents = mutableMapOf<String, String>()
 
     init {
-        initializeVirtualFileSystem()
-        refreshDirectory(_currentPath.value)
-    }
-
-    private fun initializeVirtualFileSystem() {
+        // Zero synthetic demo files - initialize clean directories
         virtualFileSystem["/"] = mutableListOf(
             RemoteFile("content", "/content", isDirectory = true),
-            RemoteFile("root", "/root", isDirectory = true),
-            RemoteFile("etc", "/etc", isDirectory = true),
-            RemoteFile("usr", "/usr", isDirectory = true),
-            RemoteFile("tmp", "/tmp", isDirectory = true),
-            RemoteFile("var", "/var", isDirectory = true)
+            RemoteFile("root", "/root", isDirectory = true)
         )
-
-        virtualFileSystem["/content"] = mutableListOf(
-            RemoteFile("alpine_rootfs", "/content/alpine_rootfs", isDirectory = true),
-            RemoteFile("sample_data", "/content/sample_data", isDirectory = true),
-            RemoteFile("checkpoints", "/content/checkpoints", isDirectory = true),
-            RemoteFile("train_model.py", "/content/train_model.py", isDirectory = false, sizeBytes = 2450L),
-            RemoteFile("config.yaml", "/content/config.yaml", isDirectory = false, sizeBytes = 850L),
-            RemoteFile("dataset.csv", "/content/dataset.csv", isDirectory = false, sizeBytes = 14_200_000L),
-            RemoteFile("training.log", "/content/training.log", isDirectory = false, sizeBytes = 42_500L),
-            RemoteFile("colab_notebook.ipynb", "/content/colab_notebook.ipynb", isDirectory = false, sizeBytes = 18_900L)
-        )
-
-        virtualFileSystem["/content/sample_data"] = mutableListOf(
-            RemoteFile("anscombe.json", "/content/sample_data/anscombe.json", isDirectory = false, sizeBytes = 1697L),
-            RemoteFile("california_housing_train.csv", "/content/sample_data/california_housing_train.csv", isDirectory = false, sizeBytes = 1706430L),
-            RemoteFile("mnist_test.csv", "/content/sample_data/mnist_test.csv", isDirectory = false, sizeBytes = 18289443L)
-        )
-
-        virtualFileSystem["/content/checkpoints"] = mutableListOf(
-            RemoteFile("model_epoch_10.pt", "/content/checkpoints/model_epoch_10.pt", isDirectory = false, sizeBytes = 445_000_000L),
-            RemoteFile("best_weights.safetensors", "/content/checkpoints/best_weights.safetensors", isDirectory = false, sizeBytes = 880_000_000L)
-        )
-
-        virtualFileContents["/content/train_model.py"] = """
-            # PyTorch Deep Learning Training Script
-            import torch
-            import torch.nn as nn
-            from colab_cli import log_metrics
-
-            print(f"CUDA Available: {torch.cuda.is_available()}")
-            if torch.cuda.is_available():
-                print(f"Device: {torch.cuda.get_device_name(0)}")
-
-            class SimpleModel(nn.Module):
-                def __init__(self):
-                    super().__init__()
-                    self.fc = nn.Linear(512, 10)
-
-                def forward(self, x):
-                    return self.fc(x)
-
-            model = SimpleModel().cuda()
-            print("Model initialized on Alpine container!")
-        """.trimIndent()
-
-        virtualFileContents["/content/config.yaml"] = """
-            experiment:
-              name: alpine-colab-run
-              epochs: 100
-              batch_size: 64
-              optimizer:
-                type: adamw
-                lr: 0.0003
-              resilient_ssh:
-                protocol: mosh
-                auto_reconnect: true
-        """.trimIndent()
-
-        virtualFileContents["/content/training.log"] = """
-            [Epoch 1/100] loss: 2.3412, acc: 0.124 - val_loss: 2.102
-            [Epoch 2/100] loss: 1.8920, acc: 0.358 - val_loss: 1.745
-            [Epoch 3/100] loss: 1.4521, acc: 0.582 - val_loss: 1.321
-            [Epoch 4/100] loss: 1.1204, acc: 0.710 - val_loss: 1.050
-            [Epoch 5/100] loss: 0.8923, acc: 0.812 - val_loss: 0.880
-            [Epoch 6/100] loss: 0.7102, acc: 0.865 - val_loss: 0.720
-            [INFO] Resilient connection kept session alive during network shift.
-        """.trimIndent()
+        virtualFileSystem["/content"] = mutableListOf()
+        refreshDirectory(_currentPath.value)
     }
 
     fun navigateTo(path: String) {
@@ -136,7 +63,7 @@ class FileManagerEngine(
     }
 
     suspend fun readFileContent(file: RemoteFile): String = withContext(Dispatchers.IO) {
-        virtualFileContents[file.path] ?: "File content preview for ${file.name} (${file.formattedSize()})\n\n[Binary or Large File Data]"
+        virtualFileContents[file.path] ?: "File: ${file.path} (${file.formattedSize()})\n\n[Empty file or remote binary stream]"
     }
 
     suspend fun downloadFileToDevice(file: RemoteFile): Result<File> = withContext(Dispatchers.IO) {
@@ -144,12 +71,12 @@ class FileManagerEngine(
             val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
                 ?: context.filesDir
             val localFile = File(downloadDir, file.name)
-            val content = virtualFileContents[file.path] ?: "Generated Colab Download Payload for ${file.name}"
+            val content = virtualFileContents[file.path] ?: ""
             
             FileOutputStream(localFile).use { out ->
                 out.write(content.toByteArray())
             }
-            _statusNotice.value = "Downloaded to: ${localFile.name}"
+            _statusNotice.value = "Downloaded: ${localFile.name}"
             Result.success(localFile)
         } catch (e: Exception) {
             _statusNotice.value = "Download failed: ${e.message}"
