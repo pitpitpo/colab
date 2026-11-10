@@ -468,10 +468,13 @@ fun SignInAccountDialog(
     onDismiss: () -> Unit,
     onConfirm: (email: String, name: String, token: String, tier: String) -> Unit
 ) {
+    val context = LocalContext.current
     var email by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
     var selectedTier by remember { mutableStateOf("Free") }
+
+    val oauthUrl = "https://colab.research.google.com/notebooks/gpu.ipynb"
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -492,6 +495,64 @@ fun SignInAccountDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // OAuth Link Section (Copy only - no auto browser launch)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Colab Auth / Token URL",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Colab OAuth URL", oauthUrl)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Auth link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy Auth URL",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = oauthUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "Copy this link to your desktop or device browser to retrieve your Colab auth token or session cookie, then paste below.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
