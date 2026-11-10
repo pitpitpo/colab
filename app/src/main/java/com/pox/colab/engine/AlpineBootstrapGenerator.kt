@@ -63,11 +63,14 @@ object AlpineBootstrapGenerator {
             # Setup DNS and proc
             cp /etc/resolv.conf /content/alpine_rootfs/etc/
             
-            # Install Alpine Packages: openssh, mosh, tmux, python3, rsync, git, curl, htop
+            # Install Alpine Packages: openssh, mosh, tmux, python3, pip, compilation tools, rsync, git, curl, htop
             chroot /content/alpine_rootfs /bin/sh -c "
                 apk update
-                apk add --no-cache openssh mosh tmux bash curl python3 py3-pip git rsync htop shadow
+                apk add --no-cache openssh mosh tmux bash curl python3 py3-pip python3-dev gcc musl-dev libffi-dev git rsync htop shadow
                 
+                # Install official Google Colab CLI inside Alpine
+                pip install --break-system-packages --no-cache-dir google-colab-cli || true
+
                 # Setup SSH server with anti-disconnect configuration
                 ssh-keygen -A
                 mkdir -p /var/run/sshd
@@ -78,31 +81,50 @@ object AlpineBootstrapGenerator {
                 echo 'ClientAliveCountMax 9999' >> /etc/ssh/sshd_config
                 echo 'TCPKeepAlive yes' >> /etc/ssh/sshd_config
 
-                # Create Colab CLI inside Alpine
+                # Create Colab CLI tool inside Alpine linking to official colab CLI
                 cat << 'CLICONTENT' > /usr/local/bin/colab-cli
 #!/bin/sh
-case "${'$'}1" in
-    status)
-        echo '=== Colab Alpine Runtime ==='
-        echo 'Uptime: '\$(uptime)
-        echo 'Disk:'
-        df -h /
-        echo 'Memory:'
-        free -m
-        ;;
-    gpu)
-        if command -v nvidia-smi &> /dev/null; then
-            nvidia-smi
-        else
-            echo 'CPU mode (No GPU attached)'
-        fi
-        ;;
-    *)
-        echo 'Usage: colab-cli [status|gpu|metrics]'
-        ;;
-esac
+# Colab CLI wrapper: delegates directly to official Google Colab CLI tool
+if command -v colab >/dev/null 2>&1; then
+    case "${'$'}1" in
+        status)
+            echo '=== Colab Alpine Runtime ==='
+            echo 'Uptime: '\$(uptime)
+            echo 'Disk:'
+            df -h /
+            echo 'Memory:'
+            free -m
+            ;;
+        gpu)
+            if command -v nvidia-smi >/dev/null 2>&1; then
+                nvidia-smi
+            else
+                echo 'CPU mode (No GPU attached)'
+            fi
+            ;;
+        *)
+            exec colab "${'$'}@"
+            ;;
+    esac
+else
+    case "${'$'}1" in
+        status)
+            echo '=== Colab Alpine Runtime ==='
+            echo 'Uptime: '\$(uptime)
+            df -h /
+            free -m
+            ;;
+        gpu)
+            if command -v nvidia-smi >/dev/null 2>&1; then nvidia-smi; else echo 'CPU mode (No GPU attached)'; fi
+            ;;
+        *)
+            python3 -m colab_cli.cli "${'$'}@" 2>/dev/null || echo 'Usage: colab-cli [status|gpu|metrics|sessions|auth]'
+            ;;
+    esac
+fi
 CLICONTENT
                 chmod +x /usr/local/bin/colab-cli
+                ln -sf /usr/local/bin/colab-cli /usr/bin/colab-cli 2>/dev/null || true
             "
 
             echo "=== [3/5] Starting Resilient Tmux Session & Mosh/SSH Daemons ==="

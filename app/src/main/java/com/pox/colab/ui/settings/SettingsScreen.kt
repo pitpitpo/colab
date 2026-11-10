@@ -474,7 +474,8 @@ fun SignInAccountDialog(
     var token by remember { mutableStateOf("") }
     var selectedTier by remember { mutableStateOf("Free") }
 
-    val oauthUrl = "https://colab.research.google.com/notebooks/gpu.ipynb"
+    // Official Google Colab OAuth 2.0 endpoint (from google-colab-cli InstalledAppFlow)
+    val oauthUrl = "https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com&redirect_uri=https%3A%2F%2Fsdk.cloud.google.com%2Fapplicationdefaultauthcode.html&scope=openid%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcolaboratory%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file&access_type=offline&prompt=consent"
 
     AlertDialog(
         onDismissRequest = onDismiss,
