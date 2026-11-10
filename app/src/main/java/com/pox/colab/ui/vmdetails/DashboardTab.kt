@@ -30,12 +30,13 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -68,11 +69,14 @@ fun DashboardTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Status & Overview Card
+        // Status & Overview Container
         item {
-            ElevatedCard(
+            OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -85,7 +89,7 @@ fun DashboardTab(
                             modifier = Modifier.weight(1f)
                         ) {
                             StatusIndicatorDot(status = vm.status)
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = vm.status.name,
                                 style = MaterialTheme.typography.titleMedium,
@@ -114,9 +118,9 @@ fun DashboardTab(
                             imageVector = Icons.Default.Router,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
-                            tint = ColabOrange
+                            tint = MaterialTheme.colorScheme.primary
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Tunnel: ${vm.tunnelUrl ?: "Not connected (Run script in Colab)"}",
                             style = MaterialTheme.typography.bodyMedium,
@@ -139,7 +143,7 @@ fun DashboardTab(
             }
         }
 
-        // Live Resource Telemetry
+        // Live Resource Telemetry Header
         item {
             Text(
                 text = "Live Telemetry",
@@ -151,22 +155,25 @@ fun DashboardTab(
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // CPU Card
-                ElevatedCard(
+                // CPU Container
+                OutlinedCard(
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Speed,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = ColabOrange
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text("CPU", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
@@ -183,7 +190,7 @@ fun DashboardTab(
                                 .fillMaxWidth()
                                 .height(5.dp)
                                 .clip(RoundedCornerShape(3.dp)),
-                            color = ColabOrange
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -196,20 +203,23 @@ fun DashboardTab(
                     }
                 }
 
-                // RAM Card
-                ElevatedCard(
+                // RAM Container
+                OutlinedCard(
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Memory,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = TerminalCyan
+                                tint = MaterialTheme.colorScheme.secondary
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text("RAM", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
@@ -227,7 +237,7 @@ fun DashboardTab(
                                 .fillMaxWidth()
                                 .height(5.dp)
                                 .clip(RoundedCornerShape(3.dp)),
-                            color = TerminalCyan
+                            color = MaterialTheme.colorScheme.secondary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -244,22 +254,25 @@ fun DashboardTab(
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // GPU Card
-                ElevatedCard(
+                // GPU Container
+                OutlinedCard(
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.DeveloperBoard,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = TerminalGreen
+                                tint = MaterialTheme.colorScheme.tertiary
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text("GPU", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
@@ -277,7 +290,7 @@ fun DashboardTab(
                                 .fillMaxWidth()
                                 .height(5.dp)
                                 .clip(RoundedCornerShape(3.dp)),
-                            color = TerminalGreen
+                            color = MaterialTheme.colorScheme.tertiary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -290,20 +303,23 @@ fun DashboardTab(
                     }
                 }
 
-                // Disk Card
-                ElevatedCard(
+                // Disk Container
+                OutlinedCard(
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Storage,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = TerminalYellow
+                                tint = MaterialTheme.colorScheme.outline
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text("Disk", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
@@ -321,7 +337,7 @@ fun DashboardTab(
                                 .fillMaxWidth()
                                 .height(5.dp)
                                 .clip(RoundedCornerShape(3.dp)),
-                            color = TerminalYellow
+                            color = MaterialTheme.colorScheme.outline
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -337,9 +353,12 @@ fun DashboardTab(
 
         // Alpine & Colab Bootstrap Execution
         item {
-            ElevatedCard(
+            OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -353,11 +372,11 @@ fun DashboardTab(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(
                             onClick = {
@@ -367,16 +386,20 @@ fun DashboardTab(
                                 Toast.makeText(context, "Bootstrap script copied to clipboard!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = ColabOrange),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Copy Colab Script", maxLines = 1, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy Script", maxLines = 1, fontSize = 13.sp)
                         }
 
                         OutlinedButton(
@@ -388,30 +411,32 @@ fun DashboardTab(
                                 }
                             },
                             modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (vm.status == VMStatus.RUNNING) "Mark Stopped" else "Mark Active", maxLines = 1, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (vm.status == VMStatus.RUNNING) "Mark Stopped" else "Mark Active", maxLines = 1, fontSize = 13.sp)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // Preview of the real script
-                    OutlinedCard(
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         Text(
-                            text = vm.bootstrapScript.take(280) + "\n...",
+                            text = vm.bootstrapScript.take(300) + "\n...",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
-                            modifier = Modifier.padding(10.dp),
+                            modifier = Modifier.padding(12.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
