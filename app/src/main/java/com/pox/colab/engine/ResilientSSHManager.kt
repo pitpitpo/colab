@@ -4,7 +4,6 @@ import com.jcraft.jsch.ChannelShell
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import com.pox.colab.model.ColabVM
-import com.pox.colab.model.ResilientProtocol
 import com.pox.colab.model.SSHAuthMethod
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +43,7 @@ class ResilientSSHManager(
     private val _terminalOutput = MutableStateFlow<List<TerminalLine>>(emptyList())
     val terminalOutput: StateFlow<List<TerminalLine>> = _terminalOutput.asStateFlow()
 
-    private val _statusMessage = MutableStateFlow("Idle")
+    private val _statusMessage = MutableStateFlow("Disconnected")
     val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
 
     private var jschSession: Session? = null
@@ -57,16 +56,22 @@ class ResilientSSHManager(
     private val jsch = JSch()
 
     init {
-        // Welcome banner
         appendSystemNotice("==================================================")
         appendSystemNotice(" Colab Resilient Terminal (${vm.sshConfig.resilientProtocol.name})")
         appendSystemNotice(" Target: ${vm.name} | Host: ${vm.sshConfig.host}:${vm.sshConfig.port}")
-        appendSystemNotice(" State Synchronization & Tmux Auto-Attach Enabled")
-        appendSystemNotice(" Connection will survive mobile network drops & roaming.")
+        appendSystemNotice(" Resilient Tmux Session: ${vm.sshConfig.tmuxSessionName}")
         appendSystemNotice("==================================================")
     }
 
     fun connect() {
+        if (vm.sshConfig.host.isBlank() || vm.sshConfig.host == "localhost" && vm.tunnelUrl.isNullOrBlank()) {
+            _connectionState.value = SSHConnectionState.DISCONNECTED
+            _statusMessage.value = "Tunnel URL required to connect"
+            appendSystemNotice("[!] No active tunnel host specified for VM '${vm.name}'.")
+            appendSystemNotice("[!] Run the generated bootstrap script in Google Colab to obtain a live tunnel URL.")
+            return
+        }
+
         isUserIntentionallyDisconnected = false
         supervisorJob?.cancel()
         supervisorJob = scope.launch(Dispatchers.IO) {
@@ -80,12 +85,12 @@ class ResilientSSHManager(
         readerJob?.cancel()
         closeStreamsAndSession()
         _connectionState.value = SSHConnectionState.DISCONNECTED
-        _statusMessage.value = "Disconnected by user"
-        appendSystemNotice("[!] Disconnected by user.")
+        _statusMessage.value = "Disconnected"
+        appendSystemNotice("[!] Disconnected.")
     }
 
     fun forceReconnect() {
-        appendSystemNotice("[*] User triggered force reconnect...")
+        appendSystemNotice("[*] Reconnecting...")
         isUserIntentionallyDisconnected = false
         scope.launch(Dispatchers.IO) {
             closeStreamsAndSession()
@@ -101,12 +106,10 @@ class ResilientSSHManager(
                     out.write(input.toByteArray(StandardCharsets.UTF_8))
                     out.flush()
                 } ?: run {
-                    // In simulation / offline mode
-                    appendOutputLine("$ ${input.trimEnd()}")
-                    handleSimulatedCommand(input.trim())
+                    appendSystemNotice("[!] Not connected to remote host.")
                 }
             } catch (e: Exception) {
-                appendSystemNotice("[!] Write error: ${e.message}")
+                appendSystemNotice("[!] Transmission error: ${e.message}")
                 triggerAutoReconnect()
             }
         }
@@ -116,9 +119,9 @@ class ResilientSSHManager(
         scope.launch(Dispatchers.IO) {
             try {
                 shellOutputStream?.let { out ->
-                    out.write(byteArrayOf(3)) // 0x03 = ETX / Ctrl+C
+                    out.write(byteArrayOf(3))
                     out.flush()
-                } ?: appendOutputLine("^C")
+                }
             } catch (e: Exception) {
                 triggerAutoReconnect()
             }
@@ -150,7 +153,6 @@ class ResilientSSHManager(
 
     fun clearScreen() {
         _terminalOutput.value = emptyList()
-        appendSystemNotice("[*] Screen cleared. Session state intact.")
     }
 
     private suspend fun runConnectionSupervisor() {
@@ -162,7 +164,6 @@ class ResilientSSHManager(
                 attemptConnect()
             }
 
-            // Keep-alive heartbeat loop
             delay((vm.sshConfig.keepAliveIntervalSec * 1000L).coerceAtLeast(5000L))
 
             if (_connectionState.value == SSHConnectionState.CONNECTED) {
@@ -176,9 +177,8 @@ class ResilientSSHManager(
             try {
                 _connectionState.value = SSHConnectionState.CONNECTING
                 _statusMessage.value = "Connecting to ${vm.sshConfig.host}:${vm.sshConfig.port}..."
-                appendSystemNotice("[*] Connecting via ${vm.sshConfig.resilientProtocol.name}...")
+                appendSystemNotice("[*] Connecting to ${vm.sshConfig.host}:${vm.sshConfig.port}...")
 
-                // Setup JSch Session with resilient options
                 val session = jsch.getSession(vm.sshConfig.username, vm.sshConfig.host, vm.sshConfig.port)
                 if (vm.sshConfig.authMethod == SSHAuthMethod.PASSWORD) {
                     session.setPassword(vm.sshConfig.password)
@@ -192,7 +192,6 @@ class ResilientSSHManager(
                 session.connect(10000)
                 jschSession = session
 
-                // Open resilient shell attached to tmux session
                 val channel = session.openChannel("shell") as ChannelShell
                 channel.setPtyType("xterm-256color")
                 
@@ -204,10 +203,10 @@ class ResilientSSHManager(
                 shellOutputStream = outputStream
 
                 _connectionState.value = SSHConnectionState.CONNECTED
-                _statusMessage.value = "Connected (Resilient Tmux Active)"
-                appendSystemNotice("[+] Connected! Attached to tmux session: '${vm.sshConfig.tmuxSessionName}'")
+                _statusMessage.value = "Connected"
+                appendSystemNotice("[+] Attached to session: '${vm.sshConfig.tmuxSessionName}'")
 
-                // Send tmux attach command immediately so session is immune to network breaks
+                // Auto attach tmux session
                 val attachCmd = "tmux new-session -A -s ${vm.sshConfig.tmuxSessionName}\n"
                 outputStream.write(attachCmd.toByteArray())
                 outputStream.flush()
@@ -215,82 +214,9 @@ class ResilientSSHManager(
                 startStreamReader(inputStream)
 
             } catch (e: Exception) {
-                // Connection failed -> activate simulated resilient fallback for demonstration if host unreachable
-                appendSystemNotice("[!] Direct tunnel host unreachable (${e.message ?: "timeout"}).")
-                activateResilientLocalShell()
-            }
-        }
-    }
-
-    private fun activateResilientLocalShell() {
-        _connectionState.value = SSHConnectionState.CONNECTED
-        _statusMessage.value = "Connected (Resilient Alpine Simulation)"
-        appendSystemNotice("[+] Resilient Alpine Environment Initialized.")
-        appendSystemNotice("[+] Alpine Linux 3.19.1 (x86_64) rootfs ready.")
-        appendSystemNotice("[+] Colab CLI v1.4.2 active. Type 'colab-cli status' or 'help'")
-        appendOutputLine("alpine:~# ")
-    }
-
-    private fun handleSimulatedCommand(cmd: String) {
-        when {
-            cmd == "colab-cli status" -> {
-                appendOutputLine("=== Colab Alpine Runtime ===")
-                appendOutputLine("Instance: ${vm.name} (${vm.hardwareAccelerator.label})")
-                appendOutputLine("Alpine: 3.19.1-musl | Kernel: 6.8.0-generic")
-                appendOutputLine("Uptime: 2h 45m | Load: 0.12, 0.08, 0.05")
-                appendOutputLine("SSH/Mosh Port: ${vm.sshConfig.port} (Resilient)")
-                appendOutputLine("alpine:~# ")
-            }
-            cmd == "colab-cli gpu" || cmd == "nvidia-smi" -> {
-                if (vm.hardwareAccelerator.hasGpu) {
-                    appendOutputLine("+-----------------------------------------------------------------------------+")
-                    appendOutputLine("| NVIDIA-SMI 535.104.05   Driver Version: 535.104.05   CUDA Version: 12.2     |")
-                    appendOutputLine("|-------------------------------+----------------------+----------------------+")
-                    appendOutputLine("| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |")
-                    appendOutputLine("| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |")
-                    appendOutputLine("|===============================+======================+======================|")
-                    appendOutputLine("|   0  Tesla T4            Off  | 00000000:00:04.0 Off |                    0 |")
-                    appendOutputLine("| N/A   42C    P0    28W /  70W |    245MiB / 15360MiB |     12%      Default |")
-                    appendOutputLine("+-------------------------------+----------------------+----------------------+")
-                } else {
-                    appendOutputLine("colab-cli: CPU runtime mode (No CUDA GPU device detected).")
-                }
-                appendOutputLine("alpine:~# ")
-            }
-            cmd == "uname -a" -> {
-                appendOutputLine("Linux colab-alpine-vm 6.8.0 #1 SMP PREEMPT x86_64 Linux")
-                appendOutputLine("alpine:~# ")
-            }
-            cmd == "free -h" || cmd == "free -m" -> {
-                appendOutputLine("              total        used        free      shared  buff/cache   available")
-                appendOutputLine("Mem:           13Gi       2.1Gi       8.4Gi       2.0Mi       2.8Gi        11Gi")
-                appendOutputLine("Swap:            0B          0B          0B")
-                appendOutputLine("alpine:~# ")
-            }
-            cmd == "df -h" -> {
-                appendOutputLine("Filesystem                Size      Used Available Use% Mounted on")
-                appendOutputLine("/dev/root               108.0G     24.2G     78.3G  24% /")
-                appendOutputLine("tmpfs                     6.4G         0      6.4G   0% /dev/shm")
-                appendOutputLine("alpine:~# ")
-            }
-            cmd.startsWith("ls") -> {
-                appendOutputLine("bin    dev    home   media  opt    root   sbin   sys    usr")
-                appendOutputLine("boot   etc    lib    mnt    proc   run    srv    tmp    var")
-                appendOutputLine("alpine:~# ")
-            }
-            cmd == "help" -> {
-                appendOutputLine("Supported commands: colab-cli [status|gpu], nvidia-smi, uname -a, free -h, df -h, ls, clear")
-                appendOutputLine("alpine:~# ")
-            }
-            cmd == "clear" -> {
-                clearScreen()
-            }
-            cmd.isEmpty() -> {
-                appendOutputLine("alpine:~# ")
-            }
-            else -> {
-                appendOutputLine("/bin/sh: $cmd: executed in background session")
-                appendOutputLine("alpine:~# ")
+                _connectionState.value = SSHConnectionState.ERROR
+                _statusMessage.value = "Connection failed: ${e.message ?: "Host unreachable"}"
+                appendSystemNotice("[!] Connection failed: ${e.message ?: "Host unreachable"}")
             }
         }
     }
@@ -307,7 +233,7 @@ class ResilientSSHManager(
                     appendRawOutput(chunk)
                 }
             } catch (e: Exception) {
-                appendSystemNotice("[!] Stream read interrupted: ${e.message}")
+                appendSystemNotice("[!] Stream disconnected: ${e.message}")
             } finally {
                 triggerAutoReconnect()
             }
@@ -332,8 +258,8 @@ class ResilientSSHManager(
         if (isUserIntentionallyDisconnected) return
         closeStreamsAndSession()
         _connectionState.value = SSHConnectionState.RECONNECTING
-        _statusMessage.value = "Reconnecting in 2s (Preserving Tmux)..."
-        appendSystemNotice("[~] Network break detected. Auto-reconnecting without losing state...")
+        _statusMessage.value = "Reconnecting..."
+        appendSystemNotice("[~] Reconnecting to preserve session...")
     }
 
     private fun closeStreamsAndSession() {
@@ -361,16 +287,6 @@ class ResilientSSHManager(
                 current.add(TerminalLine(text = line, isSystemNotice = false))
             }
         }
-        if (current.size > 2000) {
-            _terminalOutput.value = current.takeLast(1500)
-        } else {
-            _terminalOutput.value = current
-        }
-    }
-
-    private fun appendOutputLine(line: String) {
-        val current = _terminalOutput.value.toMutableList()
-        current.add(TerminalLine(text = line, isSystemNotice = false))
         if (current.size > 2000) {
             _terminalOutput.value = current.takeLast(1500)
         } else {

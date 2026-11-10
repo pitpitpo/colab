@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.DeveloperBoard
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Thermostat
@@ -33,18 +32,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,9 +51,7 @@ import com.pox.colab.data.VMRepository
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.VMStatus
 import com.pox.colab.theme.ColabOrange
-import com.pox.colab.theme.TerminalBackground
 import com.pox.colab.theme.TerminalCyan
-import com.pox.colab.theme.TerminalForeground
 import com.pox.colab.theme.TerminalGreen
 import com.pox.colab.theme.TerminalYellow
 import com.pox.colab.ui.home.StatusIndicatorDot
@@ -71,16 +62,6 @@ fun DashboardTab(
     repository: VMRepository
 ) {
     val context = LocalContext.current
-    var quickCommand by remember { mutableStateOf("colab-cli status") }
-    var commandOutput by remember {
-        mutableStateOf(
-            "=== Colab Alpine Runtime ===\n" +
-            "Instance: ${vm.name}\n" +
-            "Status: ${vm.status.name}\n" +
-            "OS: ${vm.alpineVersion}\n" +
-            "Ready for commands."
-        )
-    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -116,7 +97,7 @@ fun DashboardTab(
                         }
 
                         Text(
-                            text = "Uptime: ${formatUptime(vm.uptimeSeconds)}",
+                            text = if (vm.status == VMStatus.RUNNING) "Uptime: ${formatUptime(vm.uptimeSeconds)}" else "Offline",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
@@ -137,7 +118,7 @@ fun DashboardTab(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Tunnel: ${vm.tunnelUrl ?: "Pending connection"}",
+                            text = "Tunnel: ${vm.tunnelUrl ?: "Not connected (Run script in Colab)"}",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
@@ -148,7 +129,7 @@ fun DashboardTab(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "OS: ${vm.alpineVersion} • CLI: ${vm.colabCliVersion} • Resilient Mode: ${vm.sshConfig.resilientProtocol.name}",
+                        text = "OS: ${vm.alpineVersion} • CLI: ${vm.colabCliVersion} • Resilient: ${vm.sshConfig.resilientProtocol.name}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -158,10 +139,10 @@ fun DashboardTab(
             }
         }
 
-        // Hardware Resource Meters
+        // Live Resource Telemetry
         item {
             Text(
-                text = "Hardware Resource Monitor",
+                text = "Live Telemetry",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
@@ -190,14 +171,14 @@ fun DashboardTab(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "${vm.metrics.cpuUsagePercent}%",
+                            text = if (vm.status == VMStatus.RUNNING) "${vm.metrics.cpuUsagePercent}%" else "--",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         LinearProgressIndicator(
-                            progress = { vm.metrics.cpuUsagePercent / 100f },
+                            progress = { if (vm.status == VMStatus.RUNNING) vm.metrics.cpuUsagePercent / 100f else 0f },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(5.dp)
@@ -206,7 +187,7 @@ fun DashboardTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Load: ${vm.metrics.loadAverage}",
+                            text = if (vm.status == VMStatus.RUNNING) "Load: ${vm.metrics.loadAverage}" else "No signal",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -233,7 +214,7 @@ fun DashboardTab(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = vm.metrics.formattedRam(),
+                            text = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedRam() else "--",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -241,7 +222,7 @@ fun DashboardTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         LinearProgressIndicator(
-                            progress = { vm.metrics.ramUsagePercent / 100f },
+                            progress = { if (vm.status == VMStatus.RUNNING) vm.metrics.ramUsagePercent / 100f else 0f },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(5.dp)
@@ -250,7 +231,7 @@ fun DashboardTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "${vm.metrics.ramUsagePercent.toInt()}% Used",
+                            text = if (vm.status == VMStatus.RUNNING) "${vm.metrics.ramUsagePercent.toInt()}% Used" else "No telemetry",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
@@ -283,7 +264,7 @@ fun DashboardTab(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = vm.metrics.formattedGpuVram(),
+                            text = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedGpuVram() else "--",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -291,7 +272,7 @@ fun DashboardTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         LinearProgressIndicator(
-                            progress = { (vm.metrics.gpuUsagePercent / 100f).coerceIn(0f, 1f) },
+                            progress = { if (vm.status == VMStatus.RUNNING) (vm.metrics.gpuUsagePercent / 100f).coerceIn(0f, 1f) else 0f },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(5.dp)
@@ -300,7 +281,7 @@ fun DashboardTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (vm.metrics.gpuModel != null) "${vm.metrics.gpuTemperatureCelsius}°C • ${vm.metrics.gpuModel}" else "CPU Mode",
+                            text = if (vm.hardwareAccelerator.hasGpu) vm.hardwareAccelerator.label else "CPU Instance",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -327,7 +308,7 @@ fun DashboardTab(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = vm.metrics.formattedDisk(),
+                            text = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedDisk() else "--",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -335,7 +316,7 @@ fun DashboardTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         LinearProgressIndicator(
-                            progress = { vm.metrics.diskUsagePercent / 100f },
+                            progress = { if (vm.status == VMStatus.RUNNING) vm.metrics.diskUsagePercent / 100f else 0f },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(5.dp)
@@ -344,7 +325,7 @@ fun DashboardTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "${vm.metrics.diskUsagePercent.toInt()}% Used",
+                            text = if (vm.status == VMStatus.RUNNING) "${vm.metrics.diskUsagePercent.toInt()}% Used" else "No telemetry",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
@@ -354,7 +335,7 @@ fun DashboardTab(
             }
         }
 
-        // Alpine & Colab Controls
+        // Alpine & Colab Bootstrap Execution
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -362,11 +343,17 @@ fun DashboardTab(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Alpine Container Controls",
+                        text = "Alpine Container Setup",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Copy the setup script and run it in a Google Colab notebook cell to spin up Alpine with Colab CLI & resilient SSH server.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -374,30 +361,13 @@ fun DashboardTab(
                     ) {
                         Button(
                             onClick = {
-                                repository.spinUpAlpineVM(vm.id)
-                                Toast.makeText(context, "Alpine VM Spin Up Triggered", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = ColabOrange),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Spin Up", maxLines = 1, fontSize = 12.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val clip = ClipData.newPlainText("Colab Bootstrap Script", vm.bootstrapScript)
                                 clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Bootstrap script copied!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Bootstrap script copied to clipboard!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = ColabOrange),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
                         ) {
                             Icon(
@@ -406,73 +376,43 @@ fun DashboardTab(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Copy Script", maxLines = 1, fontSize = 12.sp)
+                            Text("Copy Colab Script", maxLines = 1, fontSize = 12.sp)
                         }
-                    }
-                }
-            }
-        }
 
-        // Quick Command Console
-        item {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Colab CLI Quick Command Runner",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = quickCommand,
-                            onValueChange = { quickCommand = it },
-                            label = { Text("Command") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(
+                        OutlinedButton(
                             onClick = {
-                                if (quickCommand.isNotBlank()) {
-                                    commandOutput = "$ ${quickCommand.trim()}\n" + when (quickCommand.trim()) {
-                                        "colab-cli status" -> "[OK] Alpine Container running healthy.\nUptime: ${formatUptime(vm.uptimeSeconds)}\nDaemon: persistent_tmux active"
-                                        "colab-cli gpu" -> if (vm.hardwareAccelerator.hasGpu) "NVIDIA Tesla GPU [Online]" else "No GPU attached"
-                                        else -> "/bin/sh: ${quickCommand.trim()}: executed in Alpine chroot"
-                                    }
+                                if (vm.status == VMStatus.RUNNING) {
+                                    repository.stopVM(vm.id)
+                                } else {
+                                    repository.spinUpAlpineVM(vm.id)
                                 }
-                            }
+                            },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Send,
-                                contentDescription = "Run",
-                                tint = ColabOrange
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
                             )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (vm.status == VMStatus.RUNNING) "Mark Stopped" else "Mark Active", maxLines = 1, fontSize = 12.sp)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(TerminalBackground),
-                        color = TerminalBackground
+                    // Preview of the real script
+                    OutlinedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = commandOutput,
-                            color = TerminalForeground,
+                            text = vm.bootstrapScript.take(280) + "\n...",
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(12.dp)
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(10.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
