@@ -12,15 +12,15 @@ enum class ResilientProtocol {
 }
 
 data class SSHSessionConfig(
-    val host: String = "localhost",
+    val host: String = "",
     val port: Int = 22,
     val username: String = "root",
     val authMethod: SSHAuthMethod = SSHAuthMethod.PASSWORD,
-    val password: String = "alpine",
+    val password: String = "",
     val privateKey: String? = null,
     val resilientProtocol: ResilientProtocol = ResilientProtocol.MOSH,
     val moshPort: Int = 60001,
-    val tmuxSessionName: String = "colab_persistent",
+    val tmuxSessionName: String = "colab_session",
     val autoReconnect: Boolean = true,
     val keepAliveIntervalSec: Int = 10,
     val maxReconnectRetries: Int = 999

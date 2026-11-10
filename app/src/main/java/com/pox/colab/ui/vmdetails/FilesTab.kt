@@ -1,7 +1,6 @@
 package com.pox.colab.ui.vmdetails
 
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -19,38 +18,37 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,22 +62,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pox.colab.engine.FileManagerEngine
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.RemoteFile
-import com.pox.colab.theme.ColabOrange
-import com.pox.colab.theme.ColabYellow
 import com.pox.colab.theme.TerminalBackground
 import com.pox.colab.theme.TerminalForeground
-import com.pox.colab.theme.TerminalGreen
-import com.pox.colab.theme.TerminalRed
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,9 +113,9 @@ fun FilesTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Path Breadcrumbs & Navigation Bar
+        // Navigation Bar & Breadcrumb
         Surface(
-            tonalElevation = 2.dp,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
@@ -133,10 +128,12 @@ fun FilesTab(
                     onClick = { fileEngine.navigateUp() },
                     enabled = currentPath != "/"
                 ) {
-                    Icon(imageVector = Icons.Default.ArrowUpward, contentDescription = "Go Up")
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "Navigate to parent directory"
+                    )
                 }
 
-                // Breadcrumbs
                 Row(
                     modifier = Modifier
                         .weight(1f)
@@ -145,84 +142,141 @@ fun FilesTab(
                 ) {
                     Text(
                         text = "colab:$currentPath",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.SemiBold,
-                        color = ColabOrange
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
                     )
                 }
 
                 IconButton(onClick = { fileEngine.refreshDirectory() }) {
-                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh")
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh files")
                 }
 
                 IconButton(onClick = { showNewFolderDialog = true }) {
-                    Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "New Folder")
+                    Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "Create directory")
                 }
 
                 IconButton(onClick = { showUploadDialog = true }) {
-                    Icon(imageVector = Icons.Default.Upload, contentDescription = "Upload", tint = ColabOrange)
+                    Icon(imageVector = Icons.Default.Upload, contentDescription = "Upload file", tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
 
-        // Search Filter
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("Search files in current directory...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            shape = RoundedCornerShape(10.dp)
-        )
-
-        if (isLoading) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = ColabOrange)
+        // Search Bar
+        if (files.isNotEmpty()) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search files...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                )
+            )
         }
 
-        // Files List
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            items(filteredFiles, key = { it.path }) { file ->
-                FileItemRow(
-                    file = file,
-                    onOpen = {
-                        if (file.isDirectory) {
-                            fileEngine.navigateTo(file.path)
-                        } else {
+        if (isLoading) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        if (filteredFiles.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Surface(
+                        modifier = Modifier.size(56.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "Directory Empty",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "No files in $currentPath. Tap the upload or new folder button above to populate files.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            // M3 List Items with subtle dividers
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
+                items(filteredFiles, key = { it.path }) { file ->
+                    FileListItem(
+                        file = file,
+                        onOpen = {
+                            if (file.isDirectory) {
+                                fileEngine.navigateTo(file.path)
+                            } else {
+                                scope.launch {
+                                    previewContent = fileEngine.readFileContent(file)
+                                    selectedFileForPreview = file
+                                }
+                            }
+                        },
+                        onDownload = {
+                            scope.launch {
+                                fileEngine.downloadFileToDevice(file)
+                            }
+                        },
+                        onPreview = {
                             scope.launch {
                                 previewContent = fileEngine.readFileContent(file)
                                 selectedFileForPreview = file
                             }
-                        }
-                    },
-                    onDownload = {
-                        scope.launch {
-                            fileEngine.downloadFileToDevice(file)
-                        }
-                    },
-                    onPreview = {
-                        scope.launch {
-                            previewContent = fileEngine.readFileContent(file)
-                            selectedFileForPreview = file
-                        }
-                    },
-                    onRename = { fileToRename = file },
-                    onDelete = { fileEngine.deleteFile(file) }
-                )
+                        },
+                        onRename = { fileToRename = file },
+                        onDelete = { fileEngine.deleteFile(file) }
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+                }
             }
         }
     }
 
-    // File Preview Modal Dialog
+    // Modal Preview Dialog
     selectedFileForPreview?.let { file ->
         AlertDialog(
             onDismissRequest = { selectedFileForPreview = null },
@@ -237,7 +291,8 @@ fun FilesTab(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = file.formattedSize(),
@@ -249,10 +304,10 @@ fun FilesTab(
             text = {
                 Surface(
                     color = TerminalBackground,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(300.dp)
+                        .height(280.dp)
                 ) {
                     Column(
                         modifier = Modifier
@@ -278,15 +333,19 @@ fun FilesTab(
                             selectedFileForPreview = null
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Download,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Download to Device")
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Download")
                 }
             },
             dismissButton = {
@@ -302,13 +361,14 @@ fun FilesTab(
         var folderName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showNewFolderDialog = false },
-            title = { Text("Create New Folder") },
+            title = { Text("New Directory", fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
                     value = folderName,
                     onValueChange = { folderName = it },
-                    label = { Text("Folder Name") },
+                    label = { Text("Directory Name") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -320,7 +380,11 @@ fun FilesTab(
                             showNewFolderDialog = false
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
+                    enabled = folderName.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 ) {
                     Text("Create")
                 }
@@ -335,29 +399,35 @@ fun FilesTab(
 
     // Upload File Dialog
     if (showUploadDialog) {
-        var uploadFileName by remember { mutableStateOf("script.py") }
-        var uploadFileContent by remember { mutableStateOf("# Code created from Colab Mobile App\nprint('Hello from Android')\n") }
+        var uploadFileName by remember { mutableStateOf("") }
+        var uploadFileContent by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showUploadDialog = false },
-            title = { Text("Upload File to Colab") },
+            title = { Text("Create / Upload File", fontWeight = FontWeight.Bold) },
             text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     OutlinedTextField(
                         value = uploadFileName,
                         onValueChange = { uploadFileName = it },
                         label = { Text("File Name") },
+                        placeholder = { Text("e.g. main.py") },
                         singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = uploadFileContent,
                         onValueChange = { uploadFileContent = it },
-                        label = { Text("Content / Script") },
+                        label = { Text("File Content") },
+                        placeholder = { Text("Paste code or text...") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(180.dp),
-                        maxLines = 10
+                            .height(160.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        maxLines = 8
                     )
                 }
             },
@@ -371,7 +441,11 @@ fun FilesTab(
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
+                    enabled = uploadFileName.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 ) {
                     Text("Upload")
                 }
@@ -389,13 +463,14 @@ fun FilesTab(
         var newName by remember { mutableStateOf(file.name) }
         AlertDialog(
             onDismissRequest = { fileToRename = null },
-            title = { Text("Rename File") },
+            title = { Text("Rename", fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("New Name") },
+                    label = { Text("Name") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -407,9 +482,13 @@ fun FilesTab(
                             fileToRename = null
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
+                    enabled = newName.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 ) {
-                    Text("Rename")
+                    Text("Confirm")
                 }
             },
             dismissButton = {
@@ -422,7 +501,7 @@ fun FilesTab(
 }
 
 @Composable
-fun FileItemRow(
+fun FileListItem(
     file: RemoteFile,
     onOpen: () -> Unit,
     onDownload: () -> Unit,
@@ -432,75 +511,61 @@ fun FileItemRow(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
-    ElevatedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onOpen() },
-        shape = RoundedCornerShape(10.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(
-                    imageVector = when {
-                        file.isDirectory -> Icons.Default.Folder
-                        file.name.endsWith(".pt") || file.name.endsWith(".safetensors") -> Icons.Default.Storage
-                        file.isTextOrCode -> Icons.Default.Code
-                        else -> Icons.Default.Description
-                    },
-                    contentDescription = null,
-                    tint = when {
-                        file.isDirectory -> ColabYellow
-                        file.name.endsWith(".pt") || file.name.endsWith(".safetensors") -> TerminalGreen
-                        file.isTextOrCode -> ColabOrange
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.size(24.dp)
-                )
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column {
-                    Text(
-                        text = file.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (file.isDirectory) FontWeight.SemiBold else FontWeight.Normal,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = if (file.isDirectory) "Folder" else file.formattedSize(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
+    ListItem(
+        modifier = Modifier.clickable { onOpen() },
+        headlineContent = {
+            Text(
+                text = file.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (file.isDirectory) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        supportingContent = {
+            Text(
+                text = if (file.isDirectory) "Directory" else file.formattedSize(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        leadingContent = {
+            Icon(
+                imageVector = when {
+                    file.isDirectory -> Icons.Default.Folder
+                    file.name.endsWith(".pt") || file.name.endsWith(".safetensors") -> Icons.Default.Storage
+                    file.isTextOrCode -> Icons.Default.Code
+                    else -> Icons.Default.Description
+                },
+                contentDescription = null,
+                tint = when {
+                    file.isDirectory -> MaterialTheme.colorScheme.primary
+                    file.isTextOrCode -> MaterialTheme.colorScheme.secondary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(24.dp)
+            )
+        },
+        trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!file.isDirectory) {
-                    IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onDownload) {
                         Icon(
                             imageVector = Icons.Default.Download,
-                            contentDescription = "Download",
-                            tint = ColabOrange,
-                            modifier = Modifier.size(18.dp)
+                            contentDescription = "Download file",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
 
                 Box {
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { menuExpanded = true }) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Options",
-                            modifier = Modifier.size(18.dp)
+                            contentDescription = "File actions",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                     DropdownMenu(
@@ -516,7 +581,7 @@ fun FileItemRow(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Preview Content") },
+                                text = { Text("Preview") },
                                 onClick = {
                                     menuExpanded = false
                                     onPreview()
@@ -531,7 +596,7 @@ fun FileItemRow(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Delete", color = TerminalRed) },
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 menuExpanded = false
                                 onDelete()
@@ -540,6 +605,9 @@ fun FileItemRow(
                     }
                 }
             }
-        }
-    }
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = Color.Transparent
+        )
+    )
 }

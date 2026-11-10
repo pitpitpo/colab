@@ -32,7 +32,6 @@ class VMRepository(
     }
 
     private fun loadData() {
-        // Zero demo data - strictly loads user-saved state
         val loadedAccounts = preferences.loadAccounts()
         _accounts.value = loadedAccounts
         val activeId = preferences.getActiveAccountId() ?: loadedAccounts.firstOrNull()?.id
@@ -42,7 +41,7 @@ class VMRepository(
         _vms.value = loadedVMs
     }
 
-    fun addAccount(email: String, displayName: String, tokenOrCookie: String, tier: String = "Colab Pro"): ColabAccount {
+    fun addAccount(email: String, displayName: String, tokenOrCookie: String, tier: String): ColabAccount {
         val account = ColabAccount(
             email = email,
             displayName = displayName.ifEmpty { email.substringBefore("@") },
@@ -83,7 +82,8 @@ class VMRepository(
         accountId: String,
         hardwareAccelerator: HardwareAccelerator,
         tunnelProvider: TunnelProvider,
-        resilientProtocol: ResilientProtocol
+        resilientProtocol: ResilientProtocol,
+        password: String
     ): ColabVM {
         val initialVM = ColabVM(
             name = name,
@@ -92,7 +92,8 @@ class VMRepository(
             tunnelProvider = tunnelProvider,
             sshConfig = com.pox.colab.model.SSHSessionConfig(
                 resilientProtocol = resilientProtocol,
-                port = 22
+                port = 22,
+                password = password
             )
         )
         val completeVM = initialVM.copy(

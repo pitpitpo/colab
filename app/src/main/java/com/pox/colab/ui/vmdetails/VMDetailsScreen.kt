@@ -9,19 +9,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.pox.colab.data.VMRepository
 import com.pox.colab.model.VMStatus
 import com.pox.colab.theme.ColabOrange
@@ -58,10 +60,10 @@ fun VMDetailsScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("VM Not Found", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    title = { Text("VM Instance", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Navigate Back")
                         }
                     }
                 )
@@ -73,7 +75,11 @@ fun VMDetailsScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Text("This Colab VM does not exist or was removed.")
+                Text(
+                    text = "This VM instance was not found or has been removed.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
         return
@@ -88,7 +94,7 @@ fun VMDetailsScreen(
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
                         StatusIndicatorDot(status = vm.status)
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
                                 text = vm.name,
@@ -109,7 +115,7 @@ fun VMDetailsScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Navigate Back")
                     }
                 },
                 actions = {
@@ -123,9 +129,9 @@ fun VMDetailsScreen(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.Default.PowerSettingsNew,
-                            contentDescription = "Power",
-                            tint = if (vm.status == VMStatus.RUNNING) ColabOrange else MaterialTheme.colorScheme.outline
+                            imageVector = if (vm.status == VMStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
+                            contentDescription = if (vm.status == VMStatus.RUNNING) "Stop instance" else "Start instance",
+                            tint = if (vm.status == VMStatus.RUNNING) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                         )
                     }
                 },
@@ -133,56 +139,63 @@ fun VMDetailsScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface
-            ) {
-                NavigationBarItem(
-                    selected = selectedTabIndex == 0,
-                    onClick = { selectedTabIndex = 0 },
-                    icon = { Icon(Icons.Default.Speed, contentDescription = "Dashboard") },
-                    label = { Text("Dashboard", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = ColabOrange,
-                        selectedTextColor = ColabOrange,
-                        indicatorColor = ColabOrange.copy(alpha = 0.15f)
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTabIndex == 1,
-                    onClick = { selectedTabIndex = 1 },
-                    icon = { Icon(Icons.Default.Terminal, contentDescription = "SSH") },
-                    label = { Text("SSH", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = ColabOrange,
-                        selectedTextColor = ColabOrange,
-                        indicatorColor = ColabOrange.copy(alpha = 0.15f)
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTabIndex == 2,
-                    onClick = { selectedTabIndex = 2 },
-                    icon = { Icon(Icons.Default.Folder, contentDescription = "Files") },
-                    label = { Text("Files", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = ColabOrange,
-                        selectedTextColor = ColabOrange,
-                        indicatorColor = ColabOrange.copy(alpha = 0.15f)
-                    )
-                )
-            }
         }
     ) { innerPadding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (selectedTabIndex) {
-                0 -> DashboardTab(vm = vm, repository = repository)
-                1 -> SSHTab(vm = vm)
-                2 -> FilesTab(vm = vm)
+            // Material 3 PrimaryTabRow for peer views inside the single VM destination
+            PrimaryTabRow(
+                selectedTabIndex = selectedTabIndex,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary
+            ) {
+                Tab(
+                    selected = selectedTabIndex == 0,
+                    onClick = { selectedTabIndex = 0 },
+                    text = { Text("Dashboard", maxLines = 1, fontSize = 13.sp) },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Speed,
+                            contentDescription = "Dashboard",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                )
+                Tab(
+                    selected = selectedTabIndex == 1,
+                    onClick = { selectedTabIndex = 1 },
+                    text = { Text("Terminal", maxLines = 1, fontSize = 13.sp) },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Terminal,
+                            contentDescription = "Terminal",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                )
+                Tab(
+                    selected = selectedTabIndex == 2,
+                    onClick = { selectedTabIndex = 2 },
+                    text = { Text("Files", maxLines = 1, fontSize = 13.sp) },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Folder,
+                            contentDescription = "Files",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                )
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                when (selectedTabIndex) {
+                    0 -> DashboardTab(vm = vm, repository = repository)
+                    1 -> SSHTab(vm = vm)
+                    2 -> FilesTab(vm = vm)
+                }
             }
         }
     }

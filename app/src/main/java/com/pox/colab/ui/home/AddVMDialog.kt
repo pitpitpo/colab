@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeveloperBoard
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Security
@@ -23,9 +25,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,7 +40,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.HardwareAccelerator
 import com.pox.colab.model.ResilientProtocol
@@ -53,10 +61,12 @@ fun AddVMDialog(
         accountId: String,
         accelerator: HardwareAccelerator,
         tunnelProvider: TunnelProvider,
-        protocol: ResilientProtocol
+        protocol: ResilientProtocol,
+        password: String
     ) -> Unit
 ) {
-    var vmName by remember { mutableStateOf("alpine-vm-" + (10..99).random()) }
+    var vmName by remember { mutableStateOf("") }
+    var rootPassword by remember { mutableStateOf("") }
     var selectedAccountId by remember { mutableStateOf(activeAccountId ?: accounts.firstOrNull()?.id ?: "") }
     var selectedAccelerator by remember { mutableStateOf(HardwareAccelerator.T4_GPU) }
     var selectedTunnel by remember { mutableStateOf(TunnelProvider.CLOUDFLARE) }
@@ -68,15 +78,22 @@ fun AddVMDialog(
         onDismissRequest = onDismiss,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Layers,
-                    contentDescription = null,
-                    tint = ColabOrange
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = ColabOrange.copy(alpha = 0.15f),
+                    modifier = Modifier.padding(end = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = null,
+                        tint = ColabOrange,
+                        modifier = Modifier.padding(6.dp)
+                    )
+                }
                 Text(
-                    text = "Spin Up Alpine Colab VM",
-                    style = MaterialTheme.typography.titleLarge
+                    text = "New Alpine Instance",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
             }
         },
@@ -84,26 +101,33 @@ fun AddVMDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(
-                    text = "Configures a minimal Alpine Linux container inside Google Colab runtime with resilient SSH/Mosh and file manager.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // VM Name
+                // Name
                 OutlinedTextField(
                     value = vmName,
                     onValueChange = { vmName = it },
-                    label = { Text("VM Instance Name") },
+                    label = { Text("VM Name") },
+                    placeholder = { Text("e.g. pytorch-training-01") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                // Root Password
+                OutlinedTextField(
+                    value = rootPassword,
+                    onValueChange = { rootPassword = it },
+                    label = { Text("SSH Root Password") },
+                    placeholder = { Text("Enter custom root password") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = {
+                        Icon(Icons.Default.Key, contentDescription = null, tint = ColabOrange)
+                    }
+                )
 
                 // Account Selection
                 if (accounts.isNotEmpty()) {
@@ -116,8 +140,9 @@ fun AddVMDialog(
                             value = "${currentAccount.displayName} (${currentAccount.email})",
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Colab Account") },
+                            label = { Text("Associated Account") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountDropdownExpanded) },
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .menuAnchor()
                                 .fillMaxWidth()
@@ -128,7 +153,12 @@ fun AddVMDialog(
                         ) {
                             accounts.forEach { acc ->
                                 DropdownMenuItem(
-                                    text = { Text("${acc.displayName} (${acc.email}) - ${acc.tier}") },
+                                    text = {
+                                        Column {
+                                            Text(acc.displayName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(acc.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                    },
                                     onClick = {
                                         selectedAccountId = acc.id
                                         accountDropdownExpanded = false
@@ -139,99 +169,85 @@ fun AddVMDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // Hardware Accelerator
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.DeveloperBoard,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 6.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Text("Hardware Accelerator", style = MaterialTheme.typography.labelLarge)
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Hardware Accelerator", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     HardwareAccelerator.values().forEach { acc ->
                         FilterChip(
                             selected = selectedAccelerator == acc,
                             onClick = { selectedAccelerator = acc },
-                            label = { Text(acc.label) },
-                            modifier = Modifier.fillMaxWidth()
+                            label = { Text(acc.label, fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = ColabOrange.copy(alpha = 0.15f),
+                                selectedLabelColor = ColabOrange
+                            )
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // Tunnel Provider
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Router,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 6.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Text("Tunnel Provider", style = MaterialTheme.typography.labelLarge)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Tunnel Provider", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    TunnelProvider.values().forEach { provider ->
+                        FilterChip(
+                            selected = selectedTunnel == provider,
+                            onClick = { selectedTunnel = provider },
+                            label = { Text(provider.label, fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = ColabOrange.copy(alpha = 0.15f),
+                                selectedLabelColor = ColabOrange
+                            )
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                TunnelProvider.values().forEach { provider ->
-                    FilterChip(
-                        selected = selectedTunnel == provider,
-                        onClick = { selectedTunnel = provider },
-                        label = { Text(provider.label) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
 
                 // Resilient SSH Protocol
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 6.dp),
-                        tint = ColabOrange
-                    )
-                    Text("Resilient SSH (Never Dies)", style = MaterialTheme.typography.labelLarge)
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                ResilientProtocol.values().forEach { proto ->
-                    FilterChip(
-                        selected = selectedProtocol == proto,
-                        onClick = { selectedProtocol = proto },
-                        label = {
-                            Text(
-                                when (proto) {
-                                    ResilientProtocol.MOSH -> "Mosh (Mobile Shell - Survives Roaming & Sleep)"
-                                    ResilientProtocol.TMUX_SSH -> "Tmux + AutoSSH (Auto-reattach session)"
-                                    ResilientProtocol.AUTOSSH -> "AutoSSH Heartbeat Monitor"
-                                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Resilient Connection", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    ResilientProtocol.values().forEach { proto ->
+                        FilterChip(
+                            selected = selectedProtocol == proto,
+                            onClick = { selectedProtocol = proto },
+                            label = {
+                                Text(
+                                    when (proto) {
+                                        ResilientProtocol.MOSH -> "Mosh (UDP Mobile Shell)"
+                                        ResilientProtocol.TMUX_SSH -> "Persistent Tmux Daemon"
+                                        ResilientProtocol.AUTOSSH -> "AutoSSH Heartbeat"
+                                    },
+                                    fontSize = 12.sp
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = ColabOrange.copy(alpha = 0.15f),
+                                selectedLabelColor = ColabOrange
                             )
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                        )
+                    }
                 }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (vmName.isNotBlank() && selectedAccountId.isNotBlank()) {
+                    if (vmName.isNotBlank() && selectedAccountId.isNotBlank() && rootPassword.isNotBlank()) {
                         onConfirm(
                             vmName.trim(),
                             selectedAccountId,
                             selectedAccelerator,
                             selectedTunnel,
-                            selectedProtocol
+                            selectedProtocol,
+                            rootPassword.trim()
                         )
                     }
                 },
+                enabled = vmName.isNotBlank() && rootPassword.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
             ) {
-                Text("Spin Up VM")
+                Text("Generate Instance")
             }
         },
         dismissButton = {

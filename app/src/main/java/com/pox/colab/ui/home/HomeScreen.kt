@@ -30,25 +30,36 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeveloperBoard
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -63,7 +74,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -103,15 +116,15 @@ fun HomeScreen(
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(0.9f)
+                        modifier = Modifier.padding(end = 4.dp)
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_colab_logo),
-                            contentDescription = "Colab Icon",
+                            contentDescription = "Colab Logo",
                             modifier = Modifier.size(28.dp),
                             tint = Color.Unspecified
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
                                 text = "colab",
@@ -121,7 +134,7 @@ fun HomeScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "Alpine & Resilient SSH",
+                                text = "Alpine & Resilient Shell",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -144,7 +157,8 @@ fun HomeScreen(
                                 Text(
                                     text = activeAccount?.displayName ?: "No Account",
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 12.sp
                                 )
                             },
                             leadingIcon = {
@@ -152,9 +166,15 @@ fun HomeScreen(
                                     modifier = Modifier
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(if (activeAccount != null) ColabOrange else Color.Gray)
+                                        .background(
+                                            if (activeAccount != null) ColabOrange
+                                            else MaterialTheme.colorScheme.outline
+                                        )
                                 )
-                            }
+                            },
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            )
                         )
 
                         DropdownMenu(
@@ -195,13 +215,6 @@ fun HomeScreen(
                             )
                         }
                     }
-
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings"
-                        )
-                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -217,76 +230,55 @@ fun HomeScreen(
                         showAddDialog = true
                     }
                 },
-                containerColor = ColabOrange,
-                contentColor = Color.White
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "Add VM")
+                Icon(imageVector = Icons.Default.Add, contentDescription = "Add VM Instance")
             }
         }
     ) { innerPadding ->
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 280.dp),
+            columns = GridCells.Adaptive(minSize = 320.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
             contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Search Bar item spanning full width
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search Colab VMs...") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
+            // Search Bar header span
+            if (vms.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Filter instances...") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                        )
+                    )
+                }
             }
 
             if (filteredVms.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 48.dp, horizontal = 16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_colab_logo),
-                                contentDescription = null,
-                                modifier = Modifier.size(56.dp),
-                                tint = Color.Unspecified
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = if (accounts.isEmpty()) "No Colab Account Connected" else "No Active VMs",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = if (accounts.isEmpty())
-                                    "Sign in to a Google / Colab account in Settings to start spinning up Alpine VMs."
-                                else
-                                    "Tap '+ Spin Up VM' below to spin up a minimal Alpine Linux instance with Colab CLI & resilient SSH.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(
-                                onClick = {
-                                    if (accounts.isEmpty()) onNavigateToSettings() else showAddDialog = true
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
-                            ) {
-                                Text(if (accounts.isEmpty()) "Sign in Account" else "Spin Up First VM")
-                            }
+                    M3EmptyState(
+                        hasAccounts = accounts.isNotEmpty(),
+                        onPrimaryAction = {
+                            if (accounts.isEmpty()) onNavigateToSettings() else showAddDialog = true
                         }
-                    }
+                    )
                 }
             } else {
                 items(filteredVms, key = { it.id }) { vm ->
@@ -294,7 +286,7 @@ fun HomeScreen(
                     VMGridCard(
                         vm = vm,
                         account = account,
-                        onOpenDashboard = { onNavigateToVM(vm.id, 0) },
+                        onOpen = { onNavigateToVM(vm.id, 0) },
                         onOpenSSH = { onNavigateToVM(vm.id, 1) },
                         onOpenFiles = { onNavigateToVM(vm.id, 2) },
                         onTogglePower = {
@@ -315,8 +307,8 @@ fun HomeScreen(
                 accounts = accounts,
                 activeAccountId = activeAccount?.id,
                 onDismiss = { showAddDialog = false },
-                onConfirm = { name, accId, accelerator, tunnel, proto ->
-                    repository.addVM(name, accId, accelerator, tunnel, proto)
+                onConfirm = { name, accId, accelerator, tunnel, proto, password ->
+                    repository.addVM(name, accId, accelerator, tunnel, proto, password)
                     showAddDialog = false
                 }
             )
@@ -325,10 +317,90 @@ fun HomeScreen(
 }
 
 @Composable
+fun M3EmptyState(
+    hasAccounts: Boolean,
+    onPrimaryAction: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 32.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(
+            modifier = Modifier.padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                modifier = Modifier.size(64.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_colab_logo),
+                        contentDescription = null,
+                        modifier = Modifier.size(36.dp),
+                        tint = Color.Unspecified
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = if (!hasAccounts) "No Accounts Connected" else "No Virtual Machines",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = if (!hasAccounts)
+                    "Sign in with a Google Colab account in Settings to manage runtimes and provision persistent Alpine containers."
+                else
+                    "Create your first minimal Alpine Linux container instance with Colab CLI & resilient SSH.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                lineHeight = 22.sp
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = onPrimaryAction,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (!hasAccounts) "Connect Google Account" else "New Alpine Instance",
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun VMGridCard(
     vm: ColabVM,
     account: ColabAccount?,
-    onOpenDashboard: () -> Unit,
+    onOpen: () -> Unit,
     onOpenSSH: () -> Unit,
     onOpenFiles: () -> Unit,
     onTogglePower: () -> Unit,
@@ -336,14 +408,17 @@ fun VMGridCard(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
-    ElevatedCard(
+    OutlinedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpenDashboard() },
-        shape = RoundedCornerShape(16.dp)
+            .clickable { onOpen() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            // Header Row with Status & Title
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header: Name & Status & Menu
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -354,18 +429,18 @@ fun VMGridCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     StatusIndicatorDot(status = vm.status)
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = vm.name,
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = account?.displayName ?: "No Account",
-                            style = MaterialTheme.typography.labelSmall,
+                            text = account?.displayName ?: "No Account Assigned",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -376,23 +451,33 @@ fun VMGridCard(
                 Box {
                     IconButton(
                         onClick = { menuExpanded = true },
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Menu")
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Instance options",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     DropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text(if (vm.status == VMStatus.RUNNING) "Stop VM" else "Start VM") },
+                            text = { Text(if (vm.status == VMStatus.RUNNING) "Mark Offline" else "Mark Online") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (vm.status == VMStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                    contentDescription = null
+                                )
+                            },
                             onClick = {
                                 menuExpanded = false
                                 onTogglePower()
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Delete VM", color = TerminalRed) },
+                            text = { Text("Delete Instance", color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 menuExpanded = false
                                 onDelete()
@@ -402,88 +487,100 @@ fun VMGridCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Specs badges
+            // Semantic Chips
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SuggestionChip(
-                    onClick = {},
-                    label = {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeveloperBoard,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = vm.hardwareAccelerator.label,
-                            fontSize = 10.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                    },
-                    modifier = Modifier.weight(1f)
-                )
+                    }
+                }
 
-                SuggestionChip(
-                    onClick = {},
-                    label = {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = TerminalGreen
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = vm.sshConfig.resilientProtocol.name,
-                            fontSize = 10.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                    },
-                    modifier = Modifier.weight(1f)
-                )
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Action Buttons
+            // Action Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = onOpenSSH,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Terminal,
                         contentDescription = null,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text("SSH", fontSize = 11.sp, maxLines = 1)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Terminal", maxLines = 1)
                 }
 
                 OutlinedButton(
                     onClick = onOpenFiles,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Folder,
                         contentDescription = null,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text("Files", fontSize = 11.sp, maxLines = 1)
-                }
-
-                Button(
-                    onClick = onOpenDashboard,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = ColabOrange),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Speed,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text("Dash", fontSize = 11.sp, maxLines = 1)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Files", maxLines = 1)
                 }
             }
         }
@@ -497,15 +594,15 @@ fun StatusIndicatorDot(status: VMStatus) {
         VMStatus.STARTING -> TerminalYellow
         VMStatus.RECONNECTING -> ColabOrange
         VMStatus.STOPPED -> MaterialTheme.colorScheme.outline
-        VMStatus.ERROR -> TerminalRed
+        VMStatus.ERROR -> MaterialTheme.colorScheme.error
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
+        initialValue = 0.4f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(800),
+            animation = tween(900),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulseAlpha"

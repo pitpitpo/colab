@@ -6,6 +6,7 @@ import android.content.Context
 import android.util.Base64
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,29 +19,37 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -68,8 +77,6 @@ import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.theme.ColabOrange
-import com.pox.colab.theme.ColabYellow
-import com.pox.colab.theme.TerminalRed
 import java.security.KeyPairGenerator
 import java.security.SecureRandom
 
@@ -85,11 +92,7 @@ fun SettingsScreen(
     val activeAccount by repository.activeAccount.collectAsState()
 
     var showSignInDialog by remember { mutableStateOf(false) }
-    
-    // Real cryptographic key generation using RSA/EC via Android Keystore/Security provider
-    var generatedPublicKey by remember {
-        mutableStateOf(generateRealPublicKey())
-    }
+    var generatedPublicKey by remember { mutableStateOf(generateRealPublicKey()) }
 
     var dynamicColorEnabled by remember { mutableStateOf(preferences.isDynamicColorEnabled()) }
     var darkModeEnabled by remember { mutableStateOf(preferences.isDarkMode()) }
@@ -97,10 +100,17 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings & Accounts", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    Text(
+                        text = "Settings",
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Navigate Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -114,9 +124,9 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Google Accounts Management Section
+            // Section 1: Google Accounts
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -127,46 +137,44 @@ fun SettingsScreen(
                         Text(
                             text = "Google Accounts",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Connect Google accounts to manage runtimes",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            text = "Manage accounts and Colab compute quota",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
                     Button(
                         onClick = { showSignInDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = ColabOrange),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add Account", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Add Account", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
 
             if (accounts.isEmpty()) {
                 item {
-                    ElevatedCard(
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow
                     ) {
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(20.dp),
+                            modifier = Modifier.padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
@@ -176,55 +184,105 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Tap 'Add Account' above to sign in with your Google email & Colab auth token.",
+                                text = "Add your Google account credentials to manage Colab sessions.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
             } else {
-                items(accounts, key = { it.id }) { acc ->
-                    AccountCard(
-                        account = acc,
-                        isActive = acc.id == activeAccount?.id,
-                        onSelectActive = { repository.setActiveAccount(acc.id) },
-                        onDelete = { repository.removeAccount(acc.id) }
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow
+                    ) {
+                        Column {
+                            accounts.forEachIndexed { index, acc ->
+                                val isActive = acc.id == activeAccount?.id
+                                ListItem(
+                                    headlineContent = {
+                                        Text(
+                                            text = acc.displayName,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    supportingContent = {
+                                        Text(
+                                            text = "${acc.email} • ${acc.tier}",
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    leadingContent = {
+                                        RadioButton(
+                                            selected = isActive,
+                                            onClick = { repository.setActiveAccount(acc.id) }
+                                        )
+                                    },
+                                    trailingContent = {
+                                        IconButton(onClick = { repository.removeAccount(acc.id) }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Remove account",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    },
+                                    colors = ListItemDefaults.colors(
+                                        containerColor = Color.Transparent
+                                    )
+                                )
+                                if (index < accounts.lastIndex) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 16.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 2: SSH Security & Keys
+            item {
+                Column {
+                    Text(
+                        text = "SSH Cryptography & Resilience",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Authentication keys and mobile disconnect prevention",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            // SSH Resilience & Keypair
             item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "SSH Resilience & Keypair",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            item {
-                ElevatedCard(
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Security,
                                 contentDescription = null,
-                                tint = ColabOrange,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Never-Die Session Daemon",
+                                text = "Never-Die Session Protocol",
                                 style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontWeight = FontWeight.Bold
                             )
                         }
 
@@ -232,31 +290,32 @@ fun SettingsScreen(
                         Text(
                             text = "State Synchronization Protocol with persistent background Tmux sessions keep commands running continuously across IP changes and network disconnects.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 18.sp
                         )
 
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Key,
                                 contentDescription = null,
-                                tint = ColabYellow,
+                                tint = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.size(20.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Device SSH Public Key",
+                                text = "Public Key Authentication",
                                 style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontWeight = FontWeight.Bold
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -270,7 +329,7 @@ fun SettingsScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -280,25 +339,26 @@ fun SettingsScreen(
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     val clip = ClipData.newPlainText("SSH Public Key", generatedPublicKey)
                                     clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Public key copied!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Public key copied", Toast.LENGTH_SHORT).show()
                                 },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text("Copy Key", fontSize = 12.sp)
                             }
 
-                            Button(
+                            FilledTonalButton(
                                 onClick = {
                                     generatedPublicKey = generateRealPublicKey()
-                                    Toast.makeText(context, "Generated new cryptographic keypair", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "New keypair generated", Toast.LENGTH_SHORT).show()
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = ColabOrange),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
                                 Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text("Regenerate", fontSize = 12.sp)
                             }
                         }
@@ -306,71 +366,69 @@ fun SettingsScreen(
                 }
             }
 
-            // Appearance & Material 3
+            // Section 3: Appearance & Theme
             item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Appearance & MUI3 Theme",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Column {
+                    Text(
+                        text = "Appearance",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Customize theme and dynamic color tokens",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             item {
-                ElevatedCard(
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Dynamic Color (Material You)", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(
-                                    "Matches system wallpaper tones",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                    Column {
+                        ListItem(
+                            headlineContent = { Text("Dynamic Color (Material You)") },
+                            supportingContent = { Text("Tone surfaces from system wallpaper") },
+                            leadingContent = {
+                                Icon(Icons.Default.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = dynamicColorEnabled,
+                                    onCheckedChange = {
+                                        dynamicColorEnabled = it
+                                        preferences.setDynamicColorEnabled(it)
+                                    }
                                 )
-                            }
-                            Switch(
-                                checked = dynamicColorEnabled,
-                                onCheckedChange = {
-                                    dynamicColorEnabled = it
-                                    preferences.setDynamicColorEnabled(it)
-                                }
-                            )
-                        }
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant
+                        )
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Dark Theme", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(
-                                    "OLED dark background mode",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                        ListItem(
+                            headlineContent = { Text("Dark Theme") },
+                            supportingContent = { Text("High contrast terminal dark palette") },
+                            leadingContent = {
+                                Icon(Icons.Default.DarkMode, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = darkModeEnabled,
+                                    onCheckedChange = {
+                                        darkModeEnabled = it
+                                        preferences.setDarkMode(it)
+                                    }
                                 )
-                            }
-                            Switch(
-                                checked = darkModeEnabled,
-                                onCheckedChange = {
-                                    darkModeEnabled = it
-                                    preferences.setDarkMode(it)
-                                }
-                            )
-                        }
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
                     }
                 }
             }
@@ -382,7 +440,7 @@ fun SettingsScreen(
                 onConfirm = { email, name, token, tier ->
                     repository.addAccount(email, name, token, tier)
                     showSignInDialog = false
-                    Toast.makeText(context, "Account added!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Account added", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -406,72 +464,6 @@ private fun generateRealPublicKey(): String {
 }
 
 @Composable
-fun AccountCard(
-    account: ColabAccount,
-    isActive: Boolean,
-    onSelectActive: () -> Unit,
-    onDelete: () -> Unit
-) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                RadioButton(
-                    selected = isActive,
-                    onClick = onSelectActive
-                )
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = account.displayName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        SuggestionChip(
-                            onClick = {},
-                            label = { Text(account.tier, fontSize = 10.sp, maxLines = 1) }
-                        )
-                    }
-
-                    Text(
-                        text = account.email,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Remove Account",
-                    tint = TerminalRed
-                )
-            }
-        }
-    }
-}
-
-@Composable
 fun SignInAccountDialog(
     onDismiss: () -> Unit,
     onConfirm: (email: String, name: String, token: String, tier: String) -> Unit
@@ -479,7 +471,7 @@ fun SignInAccountDialog(
     var email by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
-    var selectedTier by remember { mutableStateOf("Colab Pro") }
+    var selectedTier by remember { mutableStateOf("Free") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -491,50 +483,63 @@ fun SignInAccountDialog(
                     modifier = Modifier.size(24.dp),
                     tint = Color.Unspecified
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Sign in to Google Colab", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Connect Google Account", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
         },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
-                    label = { Text("Google Account Email") },
+                    label = { Text("Account Email") },
+                    placeholder = { Text("user@gmail.com") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 OutlinedTextField(
                     value = displayName,
                     onValueChange = { displayName = it },
-                    label = { Text("Display Tag") },
+                    label = { Text("Account Tag / Label") },
+                    placeholder = { Text("e.g. Research, Work") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 OutlinedTextField(
                     value = token,
                     onValueChange = { token = it },
-                    label = { Text("Auth Cookie / Token") },
+                    label = { Text("Colab Auth Token / Cookie") },
+                    placeholder = { Text("Enter session cookie or token") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Tier", style = MaterialTheme.typography.labelMedium)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf("Free", "Colab Pro", "Colab Pro+").forEach { tier ->
-                        FilterChip(
-                            selected = selectedTier == tier,
-                            onClick = { selectedTier = tier },
-                            label = { Text(tier, maxLines = 1) }
-                        )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Subscription Tier", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("Free", "Colab Pro", "Colab Pro+").forEach { tier ->
+                            FilterChip(
+                                selected = selectedTier == tier,
+                                onClick = { selectedTier = tier },
+                                label = { Text(tier, fontSize = 12.sp) },
+                                modifier = Modifier.weight(1f),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -551,9 +556,13 @@ fun SignInAccountDialog(
                         )
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
+                enabled = email.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
             ) {
-                Text("Sign In")
+                Text("Save Account")
             }
         },
         dismissButton = {

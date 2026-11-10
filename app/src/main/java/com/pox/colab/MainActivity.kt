@@ -12,7 +12,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,7 +26,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.pox.colab.theme.ColabOrange
 import com.pox.colab.theme.ColabTheme
 import com.pox.colab.ui.home.HomeScreen
 import com.pox.colab.ui.navigation.Screen
@@ -70,7 +68,7 @@ fun ColabAppNavHost(app: ColabApp) {
         bottomBar = {
             if (isTopLevelDestination) {
                 NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
                 ) {
                     NavigationBarItem(
                         selected = currentRoute == Screen.Home.route,
@@ -86,12 +84,7 @@ fun ColabAppNavHost(app: ColabApp) {
                             }
                         },
                         icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                        label = { Text("Home", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = ColabOrange,
-                            selectedTextColor = ColabOrange,
-                            indicatorColor = ColabOrange.copy(alpha = 0.15f)
-                        )
+                        label = { Text("Home", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     )
 
                     NavigationBarItem(
@@ -108,12 +101,7 @@ fun ColabAppNavHost(app: ColabApp) {
                             }
                         },
                         icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                        label = { Text("Settings", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = ColabOrange,
-                            selectedTextColor = ColabOrange,
-                            indicatorColor = ColabOrange.copy(alpha = 0.15f)
-                        )
+                        label = { Text("Settings", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     )
                 }
             }
