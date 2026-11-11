@@ -177,7 +177,7 @@ fun SettingsScreen(
                 item {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(24.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLow
                     ) {
                         Column(
@@ -202,7 +202,7 @@ fun SettingsScreen(
                 item {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(24.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLow
                     ) {
                         Column {
@@ -274,7 +274,7 @@ fun SettingsScreen(
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -392,7 +392,7 @@ fun SettingsScreen(
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow
                 ) {
                     Column {
@@ -488,6 +488,8 @@ fun SignInAccountDialog(
         onDismissRequest = {
             if (!isAuthenticating) onDismiss()
         },
+        shape = RoundedCornerShape(28.dp),
+        containerColor = Color(0xFF14171F),
         title = null,
         text = {
             Surface(
@@ -801,8 +803,7 @@ fun SignInAccountDialog(
             ) {
                 Text("Cancel", color = Color(0xFF94A3B8))
             }
-        },
-        containerColor = Color.Transparent
+        }
     )
 }
 

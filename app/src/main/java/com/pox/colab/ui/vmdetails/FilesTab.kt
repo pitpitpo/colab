@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
@@ -125,13 +126,13 @@ fun FilesTab(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(8.dp),
-                shape = RoundedCornerShape(8.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -139,13 +140,21 @@ fun FilesTab(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Cable,
-                            contentDescription = null,
-                            tint = ColabOrange,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = CircleShape,
+                            color = ColabOrange.copy(alpha = 0.15f),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Cable,
+                                    contentDescription = null,
+                                    tint = ColabOrange,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "Tunnel host required to browse remote SFTP",
                             style = MaterialTheme.typography.bodySmall,
@@ -154,17 +163,17 @@ fun FilesTab(
                     }
                     Button(
                         onClick = onConfigureTunnel,
-                        shape = RoundedCornerShape(6.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
                     ) {
-                        Text("Set Host", fontSize = 11.sp)
+                        Text("Set Host", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
         }
 
-        // Navigation Bar & Breadcrumb
+        // Navigation Bar & Breadcrumbs
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth()
@@ -185,20 +194,29 @@ fun FilesTab(
                     )
                 }
 
-                Row(
+                Surface(
                     modifier = Modifier
                         .weight(1f)
-                        .horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 4.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
-                    Text(
-                        text = "colab:$currentPath",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "colab:$currentPath",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1
+                        )
+                    }
                 }
 
                 IconButton(onClick = { fileEngine.refreshDirectory() }) {
@@ -215,21 +233,30 @@ fun FilesTab(
             }
         }
 
-        // Search Bar
+        // Search Bar (M3 Pill style with clear action)
         if (files.isNotEmpty()) {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Search files...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                placeholder = { Text("Search files in directory...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                },
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(24.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary
                 )
             )
         }
@@ -331,6 +358,7 @@ fun FilesTab(
     selectedFileForPreview?.let { file ->
         AlertDialog(
             onDismissRequest = { selectedFileForPreview = null },
+            shape = RoundedCornerShape(28.dp),
             title = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -412,6 +440,7 @@ fun FilesTab(
         var folderName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showNewFolderDialog = false },
+            shape = RoundedCornerShape(28.dp),
             title = { Text("New Directory", fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
@@ -432,6 +461,7 @@ fun FilesTab(
                         }
                     },
                     enabled = folderName.isNotBlank(),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
@@ -454,6 +484,7 @@ fun FilesTab(
         var uploadFileContent by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showUploadDialog = false },
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Create / Upload File", fontWeight = FontWeight.Bold) },
             text = {
                 Column(
@@ -493,6 +524,7 @@ fun FilesTab(
                         }
                     },
                     enabled = uploadFileName.isNotBlank(),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
@@ -514,6 +546,7 @@ fun FilesTab(
         var newName by remember { mutableStateOf(file.name) }
         AlertDialog(
             onDismissRequest = { fileToRename = null },
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Rename", fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
@@ -581,21 +614,35 @@ fun FileListItem(
             )
         },
         leadingContent = {
-            Icon(
-                imageVector = when {
-                    file.isDirectory -> Icons.Default.Folder
-                    file.name.endsWith(".pt") || file.name.endsWith(".safetensors") -> Icons.Default.Storage
-                    file.isTextOrCode -> Icons.Default.Code
-                    else -> Icons.Default.Description
+            Surface(
+                shape = CircleShape,
+                color = when {
+                    file.isDirectory -> MaterialTheme.colorScheme.primaryContainer
+                    file.isTextOrCode -> MaterialTheme.colorScheme.secondaryContainer
+                    file.name.endsWith(".pt") || file.name.endsWith(".safetensors") -> MaterialTheme.colorScheme.tertiaryContainer
+                    else -> MaterialTheme.colorScheme.surfaceContainerHighest
                 },
-                contentDescription = null,
-                tint = when {
-                    file.isDirectory -> MaterialTheme.colorScheme.primary
-                    file.isTextOrCode -> MaterialTheme.colorScheme.secondary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.size(24.dp)
-            )
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = when {
+                            file.isDirectory -> Icons.Default.Folder
+                            file.name.endsWith(".pt") || file.name.endsWith(".safetensors") -> Icons.Default.Storage
+                            file.isTextOrCode -> Icons.Default.Code
+                            else -> Icons.Default.Description
+                        },
+                        contentDescription = null,
+                        tint = when {
+                            file.isDirectory -> MaterialTheme.colorScheme.onPrimaryContainer
+                            file.isTextOrCode -> MaterialTheme.colorScheme.onSecondaryContainer
+                            file.name.endsWith(".pt") || file.name.endsWith(".safetensors") -> MaterialTheme.colorScheme.onTertiaryContainer
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         },
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {

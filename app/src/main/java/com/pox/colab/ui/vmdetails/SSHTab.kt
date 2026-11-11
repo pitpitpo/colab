@@ -19,15 +19,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -84,7 +85,6 @@ fun SSHTab(
     }
 
     val connectionState by sshManager.connectionState.collectAsState()
-    val statusMessage by sshManager.statusMessage.collectAsState()
     val terminalLines by sshManager.terminalOutput.collectAsState()
 
     var inputCommand by remember { mutableStateOf("") }
@@ -114,29 +114,31 @@ fun SSHTab(
     ) {
         // Resilient SSH Status Bar
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = when (connectionState) {
-                            SSHConnectionState.CONNECTED -> TerminalGreen
-                            SSHConnectionState.RECONNECTING -> ColabOrange
-                            SSHConnectionState.CONNECTING -> TerminalYellow
-                            else -> TerminalRed
-                        }
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(
+                                color = when (connectionState) {
+                                    SSHConnectionState.CONNECTED -> TerminalGreen
+                                    SSHConnectionState.RECONNECTING -> ColabOrange
+                                    SSHConnectionState.CONNECTING -> TerminalYellow
+                                    else -> TerminalRed
+                                },
+                                shape = CircleShape
+                            )
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
                             text = "${vm.sshConfig.resilientProtocol.label} • ${connectionState.name}",
@@ -203,13 +205,13 @@ fun SSHTab(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(8.dp),
-                shape = RoundedCornerShape(8.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -217,13 +219,21 @@ fun SSHTab(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Cable,
-                            contentDescription = null,
-                            tint = ColabOrange,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = CircleShape,
+                            color = ColabOrange.copy(alpha = 0.15f),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Cable,
+                                    contentDescription = null,
+                                    tint = ColabOrange,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "Tunnel host required to connect terminal",
                             style = MaterialTheme.typography.bodySmall,
@@ -232,11 +242,11 @@ fun SSHTab(
                     }
                     Button(
                         onClick = onConfigureTunnel,
-                        shape = RoundedCornerShape(6.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
                     ) {
-                        Text("Set Host", fontSize = 11.sp)
+                        Text("Set Host", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -277,14 +287,14 @@ fun SSHTab(
 
         // Virtual Accessory Keyboard Bar (ESC, TAB, CTRL+C, colab-cli, nvidia-smi, arrows)
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -301,7 +311,7 @@ fun SSHTab(
             }
         }
 
-        // Command Input Bar
+        // Command Input Bar (Minimalist M3 Pill Style)
         Surface(
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth()
@@ -309,15 +319,25 @@ fun SSHTab(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
                     value = inputCommand,
                     onValueChange = { inputCommand = it },
+                    leadingIcon = {
+                        Text(
+                            text = ">_",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 12.dp, end = 4.dp)
+                        )
+                    },
                     placeholder = {
                         Text(
-                            text = if (hasTunnel) "Type command and press Send / Enter..." else "Configure tunnel above to send commands...",
+                            text = if (hasTunnel) "Type command and press Send / Enter..." else "Configure tunnel above to connect...",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 12.sp
                         )
@@ -325,7 +345,7 @@ fun SSHTab(
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     enabled = hasTunnel,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(24.dp),
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.None,
                         autoCorrect = false,
@@ -340,29 +360,35 @@ fun SSHTab(
                         }
                     ),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                        unfocusedBorderColor = Color.Transparent
                     )
                 )
 
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
-                IconButton(
+                Surface(
                     onClick = {
                         if (inputCommand.isNotBlank()) {
                             sshManager.sendInput("$inputCommand\n")
                             inputCommand = ""
                         }
                     },
-                    enabled = inputCommand.isNotBlank() && hasTunnel
+                    shape = CircleShape,
+                    color = if (inputCommand.isNotBlank() && hasTunnel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = if (inputCommand.isNotBlank() && hasTunnel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.outline,
+                    enabled = inputCommand.isNotBlank() && hasTunnel,
+                    modifier = Modifier.size(44.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Send,
-                        contentDescription = "Send",
-                        tint = if (inputCommand.isNotBlank() && hasTunnel) ColabOrange else MaterialTheme.colorScheme.outline
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
@@ -377,18 +403,18 @@ private fun AccessoryKeyButton(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(8.dp),
         color = if (isAction) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = Modifier.height(30.dp)
+        modifier = Modifier.height(32.dp)
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 8.dp),
+            modifier = Modifier.padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = label,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace,
                 color = if (isAction) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
             )

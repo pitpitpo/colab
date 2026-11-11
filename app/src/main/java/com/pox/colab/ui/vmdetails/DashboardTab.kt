@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,13 +28,18 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -59,7 +65,6 @@ import com.pox.colab.engine.TelemetryEngine
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.VMStatus
 import com.pox.colab.theme.ColabOrange
-import com.pox.colab.theme.TerminalCyan
 import com.pox.colab.theme.TerminalGreen
 import com.pox.colab.theme.TerminalYellow
 import com.pox.colab.ui.home.StatusIndicatorDot
@@ -103,16 +108,46 @@ fun DashboardTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Active Tunnel Endpoint Card
+        // Section 1: Unified Instance Status & Connection Card
         item {
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 colors = CardDefaults.outlinedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    // Status & Power Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            StatusIndicatorDot(status = vm.status)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = vm.status.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (vm.status == VMStatus.RUNNING) TerminalGreen else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Text(
+                            text = if (vm.status == VMStatus.RUNNING) "Uptime: ${formatUptime(vm.uptimeSeconds)}" else "Offline",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Tunnel Connection Details
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -131,14 +166,12 @@ fun DashboardTab(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = if (hasTunnel) "Tunnel Endpoint Connected" else "Tunnel Not Configured",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    text = if (hasTunnel) "Tunnel Connected" else "No Tunnel Configured",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = if (hasTunnel) "$host:$port" else "Terminal and Files require active tunnel host",
+                                    text = if (hasTunnel) "$host:$port" else "Required for SSH & SFTP file browsing",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontFamily = if (hasTunnel) FontFamily.Monospace else FontFamily.Default,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -150,8 +183,9 @@ fun DashboardTab(
 
                         OutlinedButton(
                             onClick = onConfigureTunnel,
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Icon(
                                 imageVector = if (hasTunnel) Icons.Default.Edit else Icons.Default.Cable,
@@ -162,85 +196,42 @@ fun DashboardTab(
                             Text(if (hasTunnel) "Edit" else "Configure", fontSize = 12.sp)
                         }
                     }
-                }
-            }
-        }
 
-        // Status & Overview Container
-        item {
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Chips metadata row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            StatusIndicatorDot(status = vm.status)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = vm.status.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (vm.status == VMStatus.RUNNING) TerminalGreen else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Text(
-                            text = if (vm.status == VMStatus.RUNNING) "Uptime: ${formatUptime(vm.uptimeSeconds)}" else "Offline",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
+                        AssistChip(
+                            onClick = {},
+                            label = { Text("Provider: ${vm.tunnelProvider.label}", fontSize = 11.sp) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Router, contentDescription = null, modifier = Modifier.size(14.dp))
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                            border = null,
+                            modifier = Modifier.height(28.dp)
+                        )
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(vm.sshConfig.resilientProtocol.label, fontSize = 11.sp) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(14.dp), tint = TerminalGreen)
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                            border = null,
+                            modifier = Modifier.height(28.dp)
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Router,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Provider: ${vm.tunnelProvider.label}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = "OS: ${vm.alpineVersion} • CLI: ${vm.colabCliVersion} • Protocol: ${vm.sshConfig.resilientProtocol.label}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
             }
         }
 
-        // Live Resource Telemetry Header
+        // Section 2: Live Telemetry Header
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -248,9 +239,9 @@ fun DashboardTab(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Live Telemetry",
+                    text = "Resource Telemetry",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Bold
                 )
 
                 if (hasTunnel) {
@@ -262,7 +253,7 @@ fun DashboardTab(
                                     repository.updateMetrics(vm.id, metrics)
                                     Toast.makeText(context, "Telemetry updated", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    Toast.makeText(context, "Telemetry synced via SSH channel", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Telemetry synchronized", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -278,243 +269,90 @@ fun DashboardTab(
             }
         }
 
+        // Telemetry Row 1: CPU & RAM
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // CPU Container
-                OutlinedCard(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.outlinedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Speed,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("CPU", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = if (vm.status == VMStatus.RUNNING && vm.metrics.cpuUsagePercent >= 0f) "${vm.metrics.cpuUsagePercent}%" else "--",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = { if (vm.status == VMStatus.RUNNING) vm.metrics.cpuUsagePercent / 100f else 0f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (vm.status == VMStatus.RUNNING) "Load: ${vm.metrics.loadAverage}" else "No signal",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
+                // CPU Gauge
+                TelemetryGaugeCard(
+                    title = "CPU",
+                    icon = Icons.Default.Speed,
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    valueText = if (vm.status == VMStatus.RUNNING && vm.metrics.cpuUsagePercent >= 0f) "${vm.metrics.cpuUsagePercent}%" else "--",
+                    progress = if (vm.status == VMStatus.RUNNING) vm.metrics.cpuUsagePercent / 100f else 0f,
+                    progressColor = MaterialTheme.colorScheme.primary,
+                    subtitleText = if (vm.status == VMStatus.RUNNING) "Load: ${vm.metrics.loadAverage}" else "Offline",
+                    modifier = Modifier.weight(1f)
+                )
 
-                // RAM Container
-                OutlinedCard(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.outlinedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Memory,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.secondary
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("RAM", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedRam() else "--",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = { if (vm.status == VMStatus.RUNNING) vm.metrics.ramUsagePercent / 100f else 0f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (vm.status == VMStatus.RUNNING && vm.metrics.ramTotalBytes > 0L) "${vm.metrics.ramUsagePercent.toInt()}% Used" else "No telemetry",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                        )
-                    }
-                }
+                // RAM Gauge
+                TelemetryGaugeCard(
+                    title = "Memory",
+                    icon = Icons.Default.Memory,
+                    iconTint = MaterialTheme.colorScheme.secondary,
+                    valueText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedRam() else "--",
+                    progress = if (vm.status == VMStatus.RUNNING) vm.metrics.ramUsagePercent / 100f else 0f,
+                    progressColor = MaterialTheme.colorScheme.secondary,
+                    subtitleText = if (vm.status == VMStatus.RUNNING && vm.metrics.ramTotalBytes > 0L) "${vm.metrics.ramUsagePercent.toInt()}% Allocated" else "Offline",
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
+        // Telemetry Row 2: GPU & Disk
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // GPU Container
-                OutlinedCard(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.outlinedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.DeveloperBoard,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = TerminalGreen
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("GPU", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = if (vm.status == VMStatus.RUNNING) (vm.metrics.gpuModel ?: "No GPU attached") else "--",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = { if (vm.status == VMStatus.RUNNING) vm.metrics.gpuUsagePercent / 100f else 0f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = TerminalGreen
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedGpuVram() else "--",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
-                            )
-                            if (vm.status == VMStatus.RUNNING && vm.metrics.gpuTemperatureCelsius > 0) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Thermostat,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(12.dp),
-                                        tint = TerminalYellow
-                                    )
-                                    Text(
-                                        text = "${vm.metrics.gpuTemperatureCelsius}°C",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = TerminalYellow
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                // GPU Gauge
+                TelemetryGaugeCard(
+                    title = "GPU",
+                    icon = Icons.Default.DeveloperBoard,
+                    iconTint = TerminalGreen,
+                    valueText = if (vm.status == VMStatus.RUNNING) (vm.metrics.gpuModel ?: "No GPU") else "--",
+                    progress = if (vm.status == VMStatus.RUNNING) vm.metrics.gpuUsagePercent / 100f else 0f,
+                    progressColor = TerminalGreen,
+                    subtitleText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedGpuVram() else "Offline",
+                    extraTag = if (vm.status == VMStatus.RUNNING && vm.metrics.gpuTemperatureCelsius > 0) "${vm.metrics.gpuTemperatureCelsius}°C" else null,
+                    modifier = Modifier.weight(1f)
+                )
 
-                // Disk Container
-                OutlinedCard(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.outlinedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Storage,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.outline
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Disk (/)", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedDisk() else "--",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = { if (vm.status == VMStatus.RUNNING) vm.metrics.diskUsagePercent / 100f else 0f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (vm.status == VMStatus.RUNNING && vm.metrics.diskTotalBytes > 0L) "${vm.metrics.diskUsagePercent.toInt()}% Used" else "No telemetry",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                        )
-                    }
-                }
+                // Disk Gauge
+                TelemetryGaugeCard(
+                    title = "Disk (/)",
+                    icon = Icons.Default.Storage,
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                    valueText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedDisk() else "--",
+                    progress = if (vm.status == VMStatus.RUNNING) vm.metrics.diskUsagePercent / 100f else 0f,
+                    progressColor = MaterialTheme.colorScheme.tertiary,
+                    subtitleText = if (vm.status == VMStatus.RUNNING && vm.metrics.diskTotalBytes > 0L) "${vm.metrics.diskUsagePercent.toInt()}% Used" else "Offline",
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
-        // Alpine & Colab Bootstrap Execution
+        // Section 3: Alpine Container Setup & Script
         item {
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 colors = CardDefaults.outlinedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Alpine Container Setup",
+                        text = "Alpine Container Bootstrap",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Copy the setup script and run it in a Google Colab notebook cell to spin up Alpine with Colab CLI & resilient SSH server.",
+                        text = "Run this script in a Google Colab notebook cell to spin up Alpine with Colab CLI & resilient SSH tunnel.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -529,7 +367,7 @@ fun DashboardTab(
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val clip = ClipData.newPlainText("Colab Bootstrap Script", vm.bootstrapScript)
                                 clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Bootstrap script copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Bootstrap script copied!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp),
@@ -537,7 +375,7 @@ fun DashboardTab(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary
                             ),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
@@ -545,7 +383,7 @@ fun DashboardTab(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copy Script", maxLines = 1, fontSize = 13.sp)
+                            Text("Copy Script", maxLines = 1, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
 
                         OutlinedButton(
@@ -558,28 +396,34 @@ fun DashboardTab(
                             },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.PlayArrow,
+                                imageVector = if (vm.status == VMStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(16.dp),
+                                tint = if (vm.status == VMStatus.RUNNING) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (vm.status == VMStatus.RUNNING) "Mark Stopped" else "Mark Active", maxLines = 1, fontSize = 13.sp)
+                            Text(
+                                text = if (vm.status == VMStatus.RUNNING) "Mark Stopped" else "Mark Active",
+                                maxLines = 1,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Preview of the real script
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         Text(
-                            text = vm.bootstrapScript.take(300) + "\n...",
+                            text = vm.bootstrapScript.take(280) + "\n...",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
                             modifier = Modifier.padding(12.dp),
@@ -588,6 +432,91 @@ fun DashboardTab(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun TelemetryGaugeCard(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: androidx.compose.ui.graphics.Color,
+    valueText: String,
+    progress: Float,
+    progressColor: androidx.compose.ui.graphics.Color,
+    subtitleText: String,
+    extraTag: String? = null,
+    modifier: Modifier = Modifier
+) {
+    OutlinedCard(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = iconTint
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+                }
+                extraTag?.let { tag ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Thermostat,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = TerminalYellow
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(tag, style = MaterialTheme.typography.labelSmall, color = TerminalYellow)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = valueText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color = progressColor,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = subtitleText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

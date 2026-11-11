@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,12 +28,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeveloperBoard
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -45,20 +48,19 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -124,10 +126,10 @@ fun HomeScreen(
                             modifier = Modifier.size(28.dp),
                             tint = Color.Unspecified
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "colab",
+                                text = "Colab",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -144,24 +146,25 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    // Account Switcher Pill
                     Box {
-                        AssistChip(
-                            onClick = {
-                                if (accounts.isNotEmpty()) {
-                                    accountMenuExpanded = true
-                                } else {
-                                    onNavigateToSettings()
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .clickable {
+                                    if (accounts.isNotEmpty()) {
+                                        accountMenuExpanded = true
+                                    } else {
+                                        onNavigateToSettings()
+                                    }
                                 }
-                            },
-                            label = {
-                                Text(
-                                    text = activeAccount?.displayName ?: "No Account",
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontSize = 12.sp
-                                )
-                            },
-                            leadingIcon = {
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
                                 Box(
                                     modifier = Modifier
                                         .size(8.dp)
@@ -171,11 +174,16 @@ fun HomeScreen(
                                             else MaterialTheme.colorScheme.outline
                                         )
                                 )
-                            },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                            )
-                        )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = activeAccount?.displayName ?: "No Account",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
 
                         DropdownMenu(
                             expanded = accountMenuExpanded,
@@ -200,20 +208,47 @@ fun HomeScreen(
                                             )
                                         }
                                     },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    },
                                     onClick = {
                                         repository.setActiveAccount(acc.id)
                                         accountMenuExpanded = false
                                     }
                                 )
                             }
+                            HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text("+ Manage in Settings", color = ColabOrange) },
+                                text = { Text("Settings & Accounts", color = MaterialTheme.colorScheme.primary) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 onClick = {
                                     accountMenuExpanded = false
                                     onNavigateToSettings()
                                 }
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Settings Button
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -223,22 +258,17 @@ fun HomeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = {
-                    if (accounts.isEmpty()) {
-                        onNavigateToSettings()
-                    } else {
-                        showAddDialog = true
-                    }
-                },
+                onClick = { showAddDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Icon(imageVector = Icons.Default.Add, contentDescription = "Add VM Instance")
             }
         }
     ) { innerPadding ->
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 320.dp),
+            columns = GridCells.Adaptive(minSize = 340.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
@@ -252,20 +282,41 @@ fun HomeScreen(
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Filter instances...") },
+                        placeholder = {
+                            Text(
+                                "Search instances...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
                             )
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotBlank()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "Clear search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(24.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary
                         )
                     )
                 }
@@ -275,9 +326,7 @@ fun HomeScreen(
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     M3EmptyState(
                         hasAccounts = accounts.isNotEmpty(),
-                        onPrimaryAction = {
-                            if (accounts.isEmpty()) onNavigateToSettings() else showAddDialog = true
-                        }
+                        onPrimaryAction = { showAddDialog = true }
                     )
                 }
             } else {
@@ -326,7 +375,8 @@ fun M3EmptyState(
             .fillMaxWidth()
             .padding(vertical = 32.dp),
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier.padding(32.dp),
@@ -351,7 +401,7 @@ fun M3EmptyState(
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = if (!hasAccounts) "No Accounts Connected" else "No Virtual Machines",
+                text = "No Virtual Machines",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
@@ -360,10 +410,7 @@ fun M3EmptyState(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = if (!hasAccounts)
-                    "Sign in with a Google Colab account in Settings to manage runtimes and provision persistent Alpine containers."
-                else
-                    "Create your first minimal Alpine Linux container instance with Colab CLI & resilient SSH.",
+                text = "Create a minimal Alpine Linux container instance with Colab CLI, resilient SSH, and live telemetry.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -388,7 +435,7 @@ fun M3EmptyState(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (!hasAccounts) "Connect Google Account" else "New Alpine Instance",
+                    text = "New Alpine Instance",
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -413,12 +460,13 @@ fun VMGridCard(
             .fillMaxWidth()
             .clickable { onOpen() },
         shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header: Name & Status & Menu
+            // Header: Name, Status & Menu
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -438,9 +486,12 @@ fun VMGridCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        val hasTunnel = vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" || !vm.tunnelUrl.isNullOrBlank()
                         Text(
-                            text = account?.displayName ?: "No Account Assigned",
+                            text = if (hasTunnel) "${vm.sshConfig.host}:${vm.sshConfig.port}"
+                                   else account?.displayName ?: "Local Session",
                             style = MaterialTheme.typography.bodySmall,
+                            fontFamily = if (hasTunnel) FontFamily.Monospace else FontFamily.Default,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -476,8 +527,16 @@ fun VMGridCard(
                                 onTogglePower()
                             }
                         )
+                        HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Delete Instance", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            },
                             onClick = {
                                 menuExpanded = false
                                 onDelete()
@@ -489,74 +548,109 @@ fun VMGridCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Semantic Chips
+            // Semantic Tags Row: Accelerator, Protocol, Tunnel Provider
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                // Accelerator Chip
+                AssistChip(
+                    onClick = onOpen,
+                    label = { Text(vm.hardwareAccelerator.label, fontSize = 11.sp) },
+                    leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.DeveloperBoard,
                             contentDescription = null,
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.primary
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = vm.hardwareAccelerator.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Surface(
+                    },
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    border = null,
+                    modifier = Modifier.height(28.dp)
+                )
+
+                // Protocol Chip
+                AssistChip(
+                    onClick = onOpenSSH,
+                    label = { Text(vm.sshConfig.resilientProtocol.label, fontSize = 11.sp) },
+                    leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Security,
                             contentDescription = null,
                             modifier = Modifier.size(14.dp),
                             tint = TerminalGreen
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = vm.sshConfig.resilientProtocol.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    border = null,
+                    modifier = Modifier.height(28.dp)
+                )
+
+                // Tunnel Provider Chip
+                AssistChip(
+                    onClick = onOpen,
+                    label = { Text(vm.tunnelProvider.label, fontSize = 11.sp) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Cloud,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.tertiary
                         )
-                    }
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    border = null,
+                    modifier = Modifier.height(28.dp)
+                )
+            }
+
+            // Quick Resource Telemetry Bar (if VM has live metrics)
+            if (vm.status == VMStatus.RUNNING && vm.metrics.cpuUsagePercent > 0f) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "CPU ${vm.metrics.cpuUsagePercent.toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LinearProgressIndicator(
+                        progress = { (vm.metrics.cpuUsagePercent / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Action Row
+            // Action Row: Terminal & Files
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 FilledTonalButton(
                     onClick = onOpenSSH,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(
@@ -565,14 +659,15 @@ fun VMGridCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Terminal", maxLines = 1)
+                    Text("Terminal", maxLines = 1, fontWeight = FontWeight.SemiBold)
                 }
 
                 OutlinedButton(
                     onClick = onOpenFiles,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(10.dp)
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Folder,
@@ -580,7 +675,7 @@ fun VMGridCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Files", maxLines = 1)
+                    Text("Files", maxLines = 1, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
