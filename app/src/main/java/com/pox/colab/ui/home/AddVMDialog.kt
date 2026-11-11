@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -154,7 +156,7 @@ fun AddVMDialog(
                             value = "${currentAccount.displayName} (${currentAccount.email})",
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Associated Account") },
+                            label = { Text("Associated Colab Account") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountDropdownExpanded) },
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
@@ -177,6 +179,37 @@ fun AddVMDialog(
                                         selectedAccountId = acc.id
                                         accountDropdownExpanded = false
                                     }
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = ColabOrange,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Local / Default Session",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Google Account can be authenticated anytime in Settings",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -243,10 +276,13 @@ fun AddVMDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (vmName.isNotBlank() && selectedAccountId.isNotBlank() && rootPassword.isNotBlank()) {
+                    if (vmName.isNotBlank() && rootPassword.isNotBlank()) {
+                        val effectiveAccountId = selectedAccountId.ifBlank {
+                            accounts.firstOrNull()?.id ?: "local-session"
+                        }
                         onConfirm(
                             vmName.trim(),
-                            selectedAccountId,
+                            effectiveAccountId,
                             selectedAccelerator,
                             selectedTunnel,
                             selectedProtocol,

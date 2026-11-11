@@ -17,3 +17,5 @@ tools/
 app/build/
 build/
 .gradle/
+.agents/
+.codegraph/

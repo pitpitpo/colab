@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.util.Base64
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -474,117 +477,181 @@ fun SignInAccountDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var authCodeOrToken by remember { mutableStateOf("") }
-    var selectedTier by remember { mutableStateOf("Free") }
+    var authSession by remember { mutableStateOf(com.pox.colab.engine.ColabAuthEngine.createAuthSession()) }
+    var authCode by remember { mutableStateOf("") }
     var isAuthenticating by remember { mutableStateOf(false) }
+    var authStatusStep by remember { mutableStateOf<String?>(null) }
     var detectedProfile by remember { mutableStateOf<com.pox.colab.engine.OAuthUserProfile?>(null) }
     var authError by remember { mutableStateOf<String?>(null) }
 
-    // Dynamically generated OAuth URL per official colab_cli/auth.py Remote Flow
-    val oauthUrl = remember { com.pox.colab.engine.ColabAuthEngine.buildAuthorizationUrl() }
-
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_colab_logo),
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = Color.Unspecified
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text("Connect Google Account", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
+        onDismissRequest = {
+            if (!isAuthenticating) onDismiss()
         },
+        title = null,
         text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF14171F),
+                contentColor = Color(0xFFE2E8F0),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                // Step 1: Copy OAuth Link
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "1. Colab OAuth Link",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-
-                            OutlinedButton(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Colab CLI Auth URL", oauthUrl)
-                                    clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Auth link copied to clipboard!", Toast.LENGTH_SHORT).show()
-                                },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Copy Auth URL",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Copy Link", fontSize = 11.sp)
-                            }
+                    // Terminal Window Header Bar
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(10.dp).background(Color(0xFFFF5F56), CircleShape))
+                            Box(modifier = Modifier.size(10.dp).background(Color(0xFFFFBD2E), CircleShape))
+                            Box(modifier = Modifier.size(10.dp).background(Color(0xFF27C93F), CircleShape))
                         }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
                         Text(
-                            text = oauthUrl,
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "colab auth login",
                             fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF94A3B8)
                         )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Text(
-                            text = "Paste in browser, sign in, and copy the Google authorization code (4/0A...) displayed on the confirmation page.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 16.sp
-                        )
+                        IconButton(
+                            onClick = {
+                                authSession = com.pox.colab.engine.ColabAuthEngine.createAuthSession()
+                                authError = null
+                                authStatusStep = null
+                                Toast.makeText(context, "New OAuth PKCE session initialized", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fingerprint,
+                                contentDescription = "Regenerate session",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
-                }
 
-                // Step 2: Paste Authorization Code with 1-click clipboard paste
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    HorizontalDivider(color = Color(0xFF334155))
+
+                    // Authentic Colab CLI Remote Auth Flow Output
                     Text(
-                        text = "2. Paste Authorization Code",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
+                        text = "$ colab auth login --auth=oauth2",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8)
                     )
 
-                    OutlinedTextField(
-                        value = authCodeOrToken,
-                        onValueChange = {
-                            authCodeOrToken = it
-                            authError = null
-                        },
-                        label = { Text("Google Authorization Code") },
-                        placeholder = { Text("4/0A... or OAuth token") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                        trailingIcon = {
+                    Text(
+                        text = "To authorize colab-cli, visit this URL in any browser:",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        color = Color(0xFFCBD5E1)
+                    )
+
+                    // URL Box with full authentic PKCE URL & Copy button
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = authSession.authUrl,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = Color(0xFF7DD3FC),
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("Colab CLI Auth URL", authSession.authUrl)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "URL copied! Paste in browser to approve", Toast.LENGTH_LONG).show()
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF38BDF8))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy URL",
+                                        tint = Color(0xFF38BDF8),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Copy URL", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "After approving, Google will display an authorization code.\nEnter the authorization code:",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        color = Color(0xFFCBD5E1)
+                    )
+
+                    // Input Prompt: > [ Enter code ]
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(1.dp, if (authError != null) Color(0xFFEF4444) else Color(0xFF334155)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "> ",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF22C55E)
+                            )
+                            BasicTextField(
+                                value = authCode,
+                                onValueChange = {
+                                    authCode = it.trim()
+                                    authError = null
+                                },
+                                textStyle = androidx.compose.ui.text.TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    color = Color.White
+                                ),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                decorationBox = { innerTextField ->
+                                    if (authCode.isEmpty()) {
+                                        Text(
+                                            text = "4/0A... paste authorization code",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF64748B)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            )
                             IconButton(
                                 onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -592,99 +659,91 @@ fun SignInAccountDialog(
                                     if (clipData != null && clipData.itemCount > 0) {
                                         val text = clipData.getItemAt(0).text?.toString()?.trim() ?: ""
                                         if (text.isNotBlank()) {
-                                            authCodeOrToken = text
+                                            authCode = text
                                             authError = null
                                         }
                                     }
-                                }
+                                },
+                                modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Paste from clipboard",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    contentDescription = "Paste",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
-                    )
-                }
+                    }
 
-                // Detected User Profile Box
-                detectedProfile?.let { profile ->
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    // Progress / Status Messages
+                    if (isAuthenticating) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF1E293B),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(36.dp)
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Person,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(10.dp))
-
-                            Column {
-                                Text(
-                                    text = profile.displayName,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color(0xFF38BDF8)
                                 )
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = profile.email,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = authStatusStep ?: "[colab] Authenticating with Google OAuth2...",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF94A3B8)
                                 )
                             }
                         }
                     }
-                }
 
-                // Error Message Notice
-                authError?.let { err ->
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = err,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(10.dp)
-                        )
-                    }
-                }
-
-                // Step 3: Subscription Tier
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Colab Subscription Tier", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf("Free", "Colab Pro", "Colab Pro+").forEach { tier ->
-                            FilterChip(
-                                selected = selectedTier == tier,
-                                onClick = { selectedTier = tier },
-                                label = { Text(tier, fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    // Detected Profile Result
+                    detectedProfile?.let { profile ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF064E3B),
+                            border = BorderStroke(1.dp, Color(0xFF059669)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = "[colab] Authenticated successfully!",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF34D399)
                                 )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "• Account: ${profile.email}\n• User: ${profile.displayName}\n• Tier: ${profile.tier}\n• Saved: ~/.config/colab-cli/token.json",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFA7F3D0)
+                                )
+                            }
+                        }
+                    }
+
+                    // Error Box
+                    authError?.let { err ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF450A0A),
+                            border = BorderStroke(1.dp, Color(0xFFDC2626)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "[colab] Error: $err",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = Color(0xFFFCA5A5),
+                                modifier = Modifier.padding(10.dp)
                             )
                         }
                     }
@@ -692,41 +751,60 @@ fun SignInAccountDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    if (detectedProfile != null) {
+            if (detectedProfile != null) {
+                Button(
+                    onClick = {
                         val p = detectedProfile!!
-                        onConfirm(p.email, p.displayName, p.accessToken, selectedTier)
-                    } else if (authCodeOrToken.isNotBlank()) {
-                        scope.launch {
-                            isAuthenticating = true
-                            authError = null
-                            val res = com.pox.colab.engine.ColabAuthEngine.authenticateWithCodeOrToken(authCodeOrToken.trim())
-                            isAuthenticating = false
-                            res.onSuccess { profile ->
-                                detectedProfile = profile
-                                onConfirm(profile.email, profile.displayName, profile.accessToken, selectedTier)
-                            }.onFailure { e ->
-                                authError = e.message ?: "Failed to authenticate with authorization code"
+                        onConfirm(p.email, p.displayName, p.accessToken, p.tier)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+                ) {
+                    Text("Done", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Button(
+                    onClick = {
+                        if (authCode.isNotBlank()) {
+                            scope.launch {
+                                isAuthenticating = true
+                                authError = null
+                                authStatusStep = "[colab] Exchanging PKCE authorization code..."
+                                val res = com.pox.colab.engine.ColabAuthEngine.authenticateWithCodeOrToken(authCode, authSession)
+                                isAuthenticating = false
+                                res.onSuccess { profile ->
+                                    detectedProfile = profile
+                                    onConfirm(profile.email, profile.displayName, profile.accessToken, profile.tier)
+                                }.onFailure { e ->
+                                    authError = e.message ?: "Authentication failed"
+                                }
                             }
                         }
-                    }
-                },
-                enabled = authCodeOrToken.isNotBlank() && !isAuthenticating,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Text(if (isAuthenticating) "Verifying with Google..." else "Authorize & Connect")
+                    },
+                    enabled = authCode.isNotBlank() && !isAuthenticating,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF38BDF8),
+                        contentColor = Color(0xFF0F172A)
+                    )
+                ) {
+                    Text(
+                        text = if (isAuthenticating) "Verifying..." else "Authorize",
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isAuthenticating
+            ) {
+                Text("Cancel", color = Color(0xFF94A3B8))
             }
-        }
+        },
+        containerColor = Color.Transparent
     )
 }
+
 
 
