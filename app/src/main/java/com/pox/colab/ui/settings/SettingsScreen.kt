@@ -474,11 +474,11 @@ fun SignInAccountDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var email by remember { mutableStateOf("") }
-    var displayName by remember { mutableStateOf("") }
-    var tokenOrCode by remember { mutableStateOf("") }
+    var authCodeOrToken by remember { mutableStateOf("") }
     var selectedTier by remember { mutableStateOf("Free") }
-    var isExchanging by remember { mutableStateOf(false) }
+    var isAuthenticating by remember { mutableStateOf(false) }
+    var detectedProfile by remember { mutableStateOf<com.pox.colab.engine.OAuthUserProfile?>(null) }
+    var authError by remember { mutableStateOf<String?>(null) }
 
     // Dynamically generated OAuth URL per official colab_cli/auth.py Remote Flow
     val oauthUrl = remember { com.pox.colab.engine.ColabAuthEngine.buildAuthorizationUrl() }
@@ -504,7 +504,7 @@ fun SignInAccountDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Colab CLI Generated OAuth Flow Banner
+                // Step 1: Copy OAuth Link
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -517,7 +517,7 @@ fun SignInAccountDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "Colab CLI OAuth URL",
+                                text = "1. Colab OAuth Link",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -528,7 +528,7 @@ fun SignInAccountDialog(
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     val clip = ClipData.newPlainText("Colab CLI Auth URL", oauthUrl)
                                     clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Colab CLI Auth URL copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Auth link copied to clipboard!", Toast.LENGTH_SHORT).show()
                                 },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 shape = RoundedCornerShape(8.dp)
@@ -557,7 +557,7 @@ fun SignInAccountDialog(
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
-                            text = "1. Copy this link to any browser.\n2. Authorize with your Google Account.\n3. Copy the authorization code shown on Google's landing page and paste below.",
+                            text = "Paste in browser, sign in, and copy the Google authorization code (4/0A...) displayed on the confirmation page.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp
@@ -565,66 +565,112 @@ fun SignInAccountDialog(
                     }
                 }
 
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Account Email") },
-                    placeholder = { Text("user@gmail.com") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = displayName,
-                    onValueChange = { displayName = it },
-                    label = { Text("Account Tag / Label") },
-                    placeholder = { Text("e.g. Research, Work") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedTextField(
-                        value = tokenOrCode,
-                        onValueChange = { tokenOrCode = it },
-                        label = { Text("Colab Auth Code / Token") },
-                        placeholder = { Text("Paste Google authorization code (4/0A...) or token") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                // Step 2: Paste Authorization Code with 1-click clipboard paste
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "2. Paste Authorization Code",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
                     )
 
-                    if (tokenOrCode.isNotBlank() && (tokenOrCode.startsWith("4/") || !tokenOrCode.startsWith("ya29."))) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            TextButton(
+                    OutlinedTextField(
+                        value = authCodeOrToken,
+                        onValueChange = {
+                            authCodeOrToken = it
+                            authError = null
+                        },
+                        label = { Text("Google Authorization Code") },
+                        placeholder = { Text("4/0A... or OAuth token") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            IconButton(
                                 onClick = {
-                                    scope.launch {
-                                        isExchanging = true
-                                        val res = com.pox.colab.engine.ColabAuthEngine.exchangeAuthCode(tokenOrCode.trim())
-                                        isExchanging = false
-                                        res.onSuccess { exchangedToken ->
-                                            tokenOrCode = exchangedToken
-                                            Toast.makeText(context, "Code exchanged for OAuth Token!", Toast.LENGTH_SHORT).show()
-                                        }.onFailure { err ->
-                                            Toast.makeText(context, "Exchange: ${err.message}", Toast.LENGTH_LONG).show()
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clipData = clipboard.primaryClip
+                                    if (clipData != null && clipData.itemCount > 0) {
+                                        val text = clipData.getItemAt(0).text?.toString()?.trim() ?: ""
+                                        if (text.isNotBlank()) {
+                                            authCodeOrToken = text
+                                            authError = null
                                         }
                                     }
-                                },
-                                enabled = !isExchanging
+                                }
                             ) {
-                                Text(if (isExchanging) "Exchanging Code..." else "Exchange Code for Token", fontSize = 11.sp)
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Paste from clipboard",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    )
+                }
+
+                // Detected User Profile Box
+                detectedProfile?.let { profile ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            Column {
+                                Text(
+                                    text = profile.displayName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = profile.email,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
                 }
 
+                // Error Message Notice
+                authError?.let { err ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = err,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+
+                // Step 3: Subscription Tier
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Subscription Tier", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Colab Subscription Tier", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -648,22 +694,31 @@ fun SignInAccountDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (email.isNotBlank()) {
-                        onConfirm(
-                            email.trim(),
-                            displayName.trim().ifEmpty { email.substringBefore("@") },
-                            tokenOrCode.trim(),
-                            selectedTier
-                        )
+                    if (detectedProfile != null) {
+                        val p = detectedProfile!!
+                        onConfirm(p.email, p.displayName, p.accessToken, selectedTier)
+                    } else if (authCodeOrToken.isNotBlank()) {
+                        scope.launch {
+                            isAuthenticating = true
+                            authError = null
+                            val res = com.pox.colab.engine.ColabAuthEngine.authenticateWithCodeOrToken(authCodeOrToken.trim())
+                            isAuthenticating = false
+                            res.onSuccess { profile ->
+                                detectedProfile = profile
+                                onConfirm(profile.email, profile.displayName, profile.accessToken, selectedTier)
+                            }.onFailure { e ->
+                                authError = e.message ?: "Failed to authenticate with authorization code"
+                            }
+                        }
                     }
                 },
-                enabled = email.isNotBlank(),
+                enabled = authCodeOrToken.isNotBlank() && !isAuthenticating,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
-                Text("Save Account")
+                Text(if (isAuthenticating) "Verifying with Google..." else "Authorize & Connect")
             }
         },
         dismissButton = {
@@ -673,4 +728,5 @@ fun SignInAccountDialog(
         }
     )
 }
+
 
