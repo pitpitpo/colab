@@ -198,7 +198,7 @@ fun FilesTab(
                     modifier = Modifier
                         .weight(1f)
                         .padding(horizontal = 4.dp),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Row(
@@ -615,7 +615,7 @@ fun FileListItem(
         },
         leadingContent = {
             Surface(
-                shape = CircleShape,
+                shape = RoundedCornerShape(12.dp),
                 color = when {
                     file.isDirectory -> MaterialTheme.colorScheme.primaryContainer
                     file.isTextOrCode -> MaterialTheme.colorScheme.secondaryContainer

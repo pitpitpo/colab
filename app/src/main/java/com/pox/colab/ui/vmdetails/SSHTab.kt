@@ -345,7 +345,7 @@ fun SSHTab(
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     enabled = hasTunnel,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(28.dp),
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.None,
                         autoCorrect = false,
@@ -403,12 +403,12 @@ private fun AccessoryKeyButton(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(10.dp),
         color = if (isAction) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = Modifier.height(32.dp)
+        modifier = Modifier.height(34.dp)
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 10.dp),
+            modifier = Modifier.padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(

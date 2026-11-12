@@ -6,6 +6,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -39,6 +40,7 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -112,13 +114,13 @@ fun DashboardTab(
         item {
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(20.dp),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 colors = CardDefaults.outlinedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 )
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
                     // Status & Power Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -157,17 +159,25 @@ fun DashboardTab(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Icon(
-                                imageVector = if (hasTunnel) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = if (hasTunnel) TerminalGreen else ColabOrange,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (hasTunnel) TerminalGreen.copy(alpha = 0.12f) else ColabOrange.copy(alpha = 0.12f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (hasTunnel) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = if (hasTunnel) TerminalGreen else ColabOrange,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
                                     text = if (hasTunnel) "Tunnel Connected" else "No Tunnel Configured",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
@@ -181,11 +191,10 @@ fun DashboardTab(
                             }
                         }
 
-                        OutlinedButton(
+                        FilledTonalButton(
                             onClick = onConfigureTunnel,
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                         ) {
                             Icon(
                                 imageVector = if (hasTunnel) Icons.Default.Edit else Icons.Default.Cable,
@@ -193,11 +202,11 @@ fun DashboardTab(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (hasTunnel) "Edit" else "Configure", fontSize = 12.sp)
+                            Text(if (hasTunnel) "Edit" else "Configure", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // Chips metadata row
                     Row(
@@ -206,25 +215,25 @@ fun DashboardTab(
                     ) {
                         AssistChip(
                             onClick = {},
-                            label = { Text("Provider: ${vm.tunnelProvider.label}", fontSize = 11.sp) },
+                            label = { Text("Provider: ${vm.tunnelProvider.label}", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                             leadingIcon = {
                                 Icon(Icons.Default.Router, contentDescription = null, modifier = Modifier.size(14.dp))
                             },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
                             border = null,
-                            modifier = Modifier.height(28.dp)
+                            modifier = Modifier.height(30.dp)
                         )
                         AssistChip(
                             onClick = {},
-                            label = { Text(vm.sshConfig.resilientProtocol.label, fontSize = 11.sp) },
+                            label = { Text(vm.sshConfig.resilientProtocol.label, fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                             leadingIcon = {
                                 Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(14.dp), tint = TerminalGreen)
                             },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
                             border = null,
-                            modifier = Modifier.height(28.dp)
+                            modifier = Modifier.height(30.dp)
                         )
                     }
                 }
@@ -338,13 +347,13 @@ fun DashboardTab(
         item {
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(20.dp),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 colors = CardDefaults.outlinedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 )
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
                     Text(
                         text = "Alpine Container Bootstrap",
                         style = MaterialTheme.typography.titleMedium,
@@ -356,7 +365,7 @@ fun DashboardTab(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -370,12 +379,12 @@ fun DashboardTab(
                                 Toast.makeText(context, "Bootstrap script copied!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary
                             ),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
@@ -386,7 +395,7 @@ fun DashboardTab(
                             Text("Copy Script", maxLines = 1, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
 
-                        OutlinedButton(
+                        FilledTonalButton(
                             onClick = {
                                 if (vm.status == VMStatus.RUNNING) {
                                     repository.stopVM(vm.id)
@@ -395,9 +404,8 @@ fun DashboardTab(
                                 }
                             },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                         ) {
                             Icon(
                                 imageVector = if (vm.status == VMStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
@@ -419,14 +427,14 @@ fun DashboardTab(
 
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         Text(
                             text = vm.bootstrapScript.take(280) + "\n...",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
-                            modifier = Modifier.padding(12.dp),
+                            modifier = Modifier.padding(14.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -450,27 +458,35 @@ fun TelemetryGaugeCard(
 ) {
     OutlinedCard(
         modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = iconTint
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = iconTint.copy(alpha = 0.12f),
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = iconTint
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 }
                 extraTag?.let { tag ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -481,38 +497,38 @@ fun TelemetryGaugeCard(
                             tint = TerminalYellow
                         )
                         Spacer(modifier = Modifier.width(2.dp))
-                        Text(tag, style = MaterialTheme.typography.labelSmall, color = TerminalYellow)
+                        Text(tag, style = MaterialTheme.typography.labelSmall, color = TerminalYellow, fontWeight = FontWeight.Medium)
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Text(
                 text = valueText,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             LinearProgressIndicator(
                 progress = { progress.coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
                 color = progressColor,
                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = subtitleText,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

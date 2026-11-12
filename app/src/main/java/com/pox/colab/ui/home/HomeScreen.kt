@@ -49,6 +49,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -257,14 +258,14 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = { showAddDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "Add VM Instance")
-            }
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(20.dp),
+                icon = { Icon(imageVector = Icons.Default.Add, contentDescription = null) },
+                text = { Text("New Instance", fontWeight = FontWeight.SemiBold) }
+            )
         }
     ) { innerPadding ->
         LazyVerticalGrid(
@@ -460,13 +461,13 @@ fun VMGridCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpen() },
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             // Header: Name, Status & Menu
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -478,7 +479,7 @@ fun VMGridCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     StatusIndicatorDot(status = vm.status)
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = vm.name,
@@ -547,17 +548,17 @@ fun VMGridCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Semantic Tags Row: Accelerator, Protocol, Tunnel Provider
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Accelerator Chip
                 AssistChip(
                     onClick = onOpen,
-                    label = { Text(vm.hardwareAccelerator.label, fontSize = 11.sp) },
+                    label = { Text(vm.hardwareAccelerator.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.DeveloperBoard,
@@ -566,18 +567,18 @@ fun VMGridCard(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     },
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     ),
                     border = null,
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier.height(30.dp)
                 )
 
                 // Protocol Chip
                 AssistChip(
                     onClick = onOpenSSH,
-                    label = { Text(vm.sshConfig.resilientProtocol.label, fontSize = 11.sp) },
+                    label = { Text(vm.sshConfig.resilientProtocol.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Security,
@@ -586,18 +587,18 @@ fun VMGridCard(
                             tint = TerminalGreen
                         )
                     },
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     ),
                     border = null,
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier.height(30.dp)
                 )
 
                 // Tunnel Provider Chip
                 AssistChip(
                     onClick = onOpen,
-                    label = { Text(vm.tunnelProvider.label, fontSize = 11.sp) },
+                    label = { Text(vm.tunnelProvider.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Cloud,
@@ -606,53 +607,58 @@ fun VMGridCard(
                             tint = MaterialTheme.colorScheme.tertiary
                         )
                     },
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     ),
                     border = null,
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier.height(30.dp)
                 )
             }
 
             // Quick Resource Telemetry Bar (if VM has live metrics)
             if (vm.status == VMStatus.RUNNING && vm.metrics.cpuUsagePercent > 0f) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
                         text = "CPU ${vm.metrics.cpuUsagePercent.toInt()}%",
                         style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     LinearProgressIndicator(
                         progress = { (vm.metrics.cpuUsagePercent / 100f).coerceIn(0f, 1f) },
                         modifier = Modifier
                             .weight(1f)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)),
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Action Row: Terminal & Files
+            // Action Row: Terminal (Primary emphasis) & Files (Tonal emphasis)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                FilledTonalButton(
+                Button(
                     onClick = onOpenSSH,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(10.dp)
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 ) {
                     Icon(
                         imageVector = Icons.Default.Terminal,
@@ -660,23 +666,27 @@ fun VMGridCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Terminal", maxLines = 1, fontWeight = FontWeight.SemiBold)
+                    Text("Terminal", maxLines = 1, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
 
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = onOpenFiles,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    )
                 ) {
                     Icon(
                         imageVector = Icons.Default.Folder,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Files", maxLines = 1, fontWeight = FontWeight.SemiBold)
+                    Text("Files", maxLines = 1, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }
