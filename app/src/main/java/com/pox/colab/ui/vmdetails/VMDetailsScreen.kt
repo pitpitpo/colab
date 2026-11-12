@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
 import com.pox.colab.model.VMStatus
 import com.pox.colab.theme.ColabOrange
@@ -50,6 +51,7 @@ fun VMDetailsScreen(
     vmId: String,
     initialTab: Int = 0,
     repository: VMRepository,
+    preferences: AppPreferences,
     onNavigateBack: () -> Unit
 ) {
     val vms by repository.vms.collectAsState()
@@ -192,11 +194,11 @@ fun VMDetailsScreen(
                 Tab(
                     selected = selectedTabIndex == 1,
                     onClick = { selectedTabIndex = 1 },
-                    text = { Text("Terminal", maxLines = 1, fontSize = 13.sp) },
+                    text = { Text("Console", maxLines = 1, fontSize = 13.sp) },
                     icon = {
                         Icon(
                             imageVector = Icons.Default.Terminal,
-                            contentDescription = "Terminal",
+                            contentDescription = "Console",
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -204,11 +206,11 @@ fun VMDetailsScreen(
                 Tab(
                     selected = selectedTabIndex == 2,
                     onClick = { selectedTabIndex = 2 },
-                    text = { Text("Files", maxLines = 1, fontSize = 13.sp) },
+                    text = { Text("File Manager", maxLines = 1, fontSize = 13.sp) },
                     icon = {
                         Icon(
                             imageVector = Icons.Default.Folder,
-                            contentDescription = "Files",
+                            contentDescription = "File Manager",
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -224,6 +226,7 @@ fun VMDetailsScreen(
                     )
                     1 -> SSHTab(
                         vm = vm,
+                        preferences = preferences,
                         onConfigureTunnel = { showTunnelDialog = true },
                         onMetricsUpdated = { metrics ->
                             repository.updateMetrics(vm.id, metrics)

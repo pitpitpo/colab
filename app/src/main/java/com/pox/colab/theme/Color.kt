@@ -32,24 +32,24 @@ val OnErrorDark = Color(0xFF690005)
 val ErrorContainerDark = Color(0xFF93000A)
 val OnErrorContainerDark = Color(0xFFFFDAD6)
 
-val BackgroundDark = Color(0xFF141311)
-val OnBackgroundDark = Color(0xFFE8E1DC)
+val BackgroundDark = Color(0xFF000000)
+val OnBackgroundDark = Color(0xFFEDEDED)
 
-val SurfaceDark = Color(0xFF141311)
-val OnSurfaceDark = Color(0xFFE8E1DC)
-val SurfaceVariantDark = Color(0xFF4C453F)
-val OnSurfaceVariantDark = Color(0xFFCEC5BD)
+val SurfaceDark = Color(0xFF000000)
+val OnSurfaceDark = Color(0xFFEDEDED)
+val SurfaceVariantDark = Color(0xFF1E1E1E)
+val OnSurfaceVariantDark = Color(0xFFA0A0A0)
 
-val SurfaceDimDark = Color(0xFF141311)
-val SurfaceBrightDark = Color(0xFF3B3936)
-val SurfaceContainerLowestDark = Color(0xFF0F0E0C)
-val SurfaceContainerLowDark = Color(0xFF1D1B19)
-val SurfaceContainerDark = Color(0xFF211F1D)
-val SurfaceContainerHighDark = Color(0xFF2C2A27)
-val SurfaceContainerHighestDark = Color(0xFF373432)
+val SurfaceDimDark = Color(0xFF000000)
+val SurfaceBrightDark = Color(0xFF202020)
+val SurfaceContainerLowestDark = Color(0xFF000000)
+val SurfaceContainerLowDark = Color(0xFF0D0D0D)
+val SurfaceContainerDark = Color(0xFF141414)
+val SurfaceContainerHighDark = Color(0xFF1C1C1C)
+val SurfaceContainerHighestDark = Color(0xFF262626)
 
-val OutlineDark = Color(0xFF978F88)
-val OutlineVariantDark = Color(0xFF4C453F)
+val OutlineDark = Color(0xFF555555)
+val OutlineVariantDark = Color(0xFF262626)
 
 // Light Theme Palette
 val PrimaryLight = Color(0xFF8F4C00)
@@ -92,9 +92,20 @@ val OutlineLight = Color(0xFF7E756E)
 val OutlineVariantLight = Color(0xFFCEC5BD)
 
 // Terminal Functional Colors (for ANSI/Console outputs)
-val TerminalBackground = Color(0xFF0D1117)
+val TerminalBackground = Color(0xFF000000)
 val TerminalForeground = Color(0xFFE6EDF3)
 val TerminalGreen = Color(0xFF3FB950)
 val TerminalRed = Color(0xFFF85149)
 val TerminalCyan = Color(0xFF56D4DD)
 val TerminalYellow = Color(0xFFE3B341)
+
+// Console Background Palette Options
+fun resolveConsoleBackground(bgName: String): Color {
+    return when (bgName) {
+        "pitch_black" -> Color(0xFF000000)
+        "slate" -> Color(0xFF0D1117)
+        "matrix" -> Color(0xFF051508)
+        "amber" -> Color(0xFF150D05)
+        else -> Color(0xFF000000)
+    }
+}

@@ -40,8 +40,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             val isDynamic = app.preferences.isDynamicColorEnabled()
             val isDark = app.preferences.isDarkMode()
+            val isPureBlack = app.preferences.isPureBlack()
+            val palette = app.preferences.getSelectedPalette()
 
-            ColabTheme(darkTheme = isDark, dynamicColor = isDynamic) {
+            ColabTheme(
+                darkTheme = isDark,
+                dynamicColor = isDynamic,
+                palette = palette,
+                pureBlack = isPureBlack
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -151,6 +158,7 @@ fun ColabAppNavHost(app: ColabApp) {
                     vmId = vmId,
                     initialTab = tab,
                     repository = repository,
+                    preferences = preferences,
                     onNavigateBack = {
                         navController.popBackStack()
                     }

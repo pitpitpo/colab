@@ -40,7 +40,8 @@ data class TerminalLine(
 class ResilientSSHManager(
     private val vm: ColabVM,
     private val scope: CoroutineScope,
-    var onMetricsUpdated: ((VMMetrics) -> Unit)? = null
+    var onMetricsUpdated: ((VMMetrics) -> Unit)? = null,
+    private val tmuxSessionOverride: String? = null
 ) {
     private val _connectionState = MutableStateFlow(SSHConnectionState.DISCONNECTED)
     val connectionState: StateFlow<SSHConnectionState> = _connectionState.asStateFlow()
@@ -62,11 +63,12 @@ class ResilientSSHManager(
 
     init {
         val (h, p) = resolveHostAndPort()
+        val tmuxName = tmuxSessionOverride ?: vm.sshConfig.tmuxSessionName
         appendSystemNotice("==================================================")
         appendSystemNotice(" Colab Resilient Terminal (${vm.sshConfig.resilientProtocol.label})")
         appendSystemNotice(" Target: ${vm.name} | Host: ${if (h.isNotBlank()) "$h:$p" else "[Unconfigured]"}")
         if (vm.sshConfig.resilientProtocol == ResilientProtocol.TMUX_SSH) {
-            appendSystemNotice(" Persistent Tmux Session: ${vm.sshConfig.tmuxSessionName}")
+            appendSystemNotice(" Persistent Tmux Session: $tmuxName")
         }
         appendSystemNotice("==================================================")
     }
@@ -236,9 +238,10 @@ class ResilientSSHManager(
                 _connectionState.value = SSHConnectionState.CONNECTED
                 _statusMessage.value = "Connected"
 
+                val tmuxName = tmuxSessionOverride ?: vm.sshConfig.tmuxSessionName
                 if (vm.sshConfig.resilientProtocol == ResilientProtocol.TMUX_SSH) {
-                    appendSystemNotice("[+] Attached to persistent tmux session: '${vm.sshConfig.tmuxSessionName}'")
-                    val attachCmd = "tmux new-session -A -s ${vm.sshConfig.tmuxSessionName}\n"
+                    appendSystemNotice("[+] Attached to persistent tmux session: '$tmuxName'")
+                    val attachCmd = "tmux new-session -A -s $tmuxName\n"
                     outputStream.write(attachCmd.toByteArray())
                     outputStream.flush()
                 } else {

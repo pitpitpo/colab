@@ -16,6 +16,7 @@ data class ColabAccount(
     val authType: AuthType = AuthType.GOOGLE_OAUTH,
     val tokenOrCookie: String = "",
     val isActive: Boolean = false,
+    val isEnabled: Boolean = true,
     val computeUnitsRemaining: Double? = null,
     val tier: String = "",
     val createdAt: Long = System.currentTimeMillis()

@@ -77,6 +77,18 @@ class VMRepository(
         preferences.saveAccounts(updated)
     }
 
+    fun toggleAccountEnabled(id: String, isEnabled: Boolean) {
+        val updated = _accounts.value.map { if (it.id == id) it.copy(isEnabled = isEnabled) else it }
+        _accounts.value = updated
+        preferences.saveAccounts(updated)
+    }
+
+    fun updateAccountTier(id: String, tier: String) {
+        val updated = _accounts.value.map { if (it.id == id) it.copy(tier = tier) else it }
+        _accounts.value = updated
+        preferences.saveAccounts(updated)
+    }
+
     fun addVM(
         name: String,
         accountId: String,
