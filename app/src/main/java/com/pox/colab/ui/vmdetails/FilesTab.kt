@@ -261,14 +261,13 @@ fun FilesTab(
             )
         }
 
-        if (isLoading) {
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-
-        if (filteredFiles.isEmpty()) {
+        if (isLoading && filteredFiles.isEmpty()) {
+            Column(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
+                repeat(6) {
+                    com.pox.colab.ui.component.shimmer.ListItemPlaceholder()
+                }
+            }
+        } else if (filteredFiles.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
