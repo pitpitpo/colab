@@ -107,34 +107,14 @@ jobs:
       - name: Build Debug & Release APKs
         run: ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace
 
-      - name: Sign Release APK with Android Debug Key
+      - name: Prepare Output Artifacts
         run: |
-          BUILD_TOOLS_DIR="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools"
-          LATEST_BT=$(ls -1d "$BUILD_TOOLS_DIR"/* 2>/dev/null | sort -V | tail -n 1)
-          echo "Using Build-Tools at $LATEST_BT"
-
-          RELEASE_DIR="app/build/outputs/apk/release"
-          DEBUG_DIR="app/build/outputs/apk/debug"
           mkdir -p output/
-
-          # Copy Debug APK directly
-          cp "$DEBUG_DIR/app-debug.apk" "output/colab-debug.apk"
-
-          # Sign the Release APK with debug keystore for instant installation
-          DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
-          if [ ! -f "$DEBUG_KEYSTORE" ]; then
-            keytool -genkeypair -v -keystore "$DEBUG_KEYSTORE" -alias androiddebugkey \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass android -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US"
+          cp app/build/outputs/apk/debug/app-debug.apk output/colab-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk output/colab-release.apk
+          if [ -f app/build/outputs/bundle/release/app-release.aab ]; then
+            cp app/build/outputs/bundle/release/app-release.aab output/colab-release.aab
           fi
-
-          "$LATEST_BT/zipalign" -v -p 4 "$RELEASE_DIR/app-release-unsigned.apk" "output/colab-release-aligned.apk"
-          "$LATEST_BT/apksigner" sign --ks "$DEBUG_KEYSTORE" --ks-pass pass:android \
-            --key-pass pass:android --out "output/colab-release-signed.apk" \
-            "output/colab-release-aligned.apk"
-
-          rm -f "output/colab-release-aligned.apk"
           echo "Output files ready:"
           ls -lh output/
 
@@ -149,8 +129,8 @@ jobs:
       - name: Upload Signed Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: colab-release-signed-apk
-          path: output/colab-release-signed.apk
+          name: colab-release-apk
+          path: output/colab-release.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -158,7 +138,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: colab-release-aab
-          path: app/build/outputs/bundle/release/app-release.aab
+          path: output/colab-release.aab
           if-no-files-found: ignore
           retention-days: 14
 
@@ -184,7 +164,7 @@ jobs:
       - name: Download Signed Release APK
         uses: actions/download-artifact@v4
         with:
-          name: colab-release-signed-apk
+          name: colab-release-apk
           path: release-assets/
 
       - name: Download AAB Bundle

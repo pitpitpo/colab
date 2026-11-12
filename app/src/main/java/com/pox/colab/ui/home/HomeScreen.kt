@@ -410,7 +410,8 @@ fun M3EmptyState(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Create a minimal Alpine Linux container instance with Colab CLI, resilient SSH, and live telemetry.",
+                text = if (hasAccounts) "Create a minimal Alpine Linux container instance with Colab CLI, resilient SSH, and live telemetry."
+                       else "Authenticate your Colab Google Account or generate a standalone Alpine Linux instance to begin.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
