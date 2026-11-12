@@ -85,11 +85,11 @@ object AlpineBootstrapGenerator {
             
             # Install Alpine Packages: openssh, tmux, python3, pip, compilation tools, rsync, git, curl, htop
             chroot /content/alpine_rootfs /bin/sh -c "
-                apk update
+                apk update && apk upgrade --no-cache
                 apk add --no-cache openssh tmux bash curl python3 py3-pip python3-dev gcc musl-dev libffi-dev git rsync htop shadow
                 
-                # Install official Google Colab CLI inside Alpine
-                pip install --break-system-packages --no-cache-dir google-colab-cli || true
+                # Install and automatically update official Google Colab CLI inside Alpine
+                pip install --upgrade --break-system-packages --no-cache-dir google-colab-cli || true
 
                 # Setup SSH server with anti-disconnect configuration
                 ssh-keygen -A
