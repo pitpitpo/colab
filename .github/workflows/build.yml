@@ -104,8 +104,14 @@ jobs:
       - name: Make Gradlew Executable
         run: chmod +x gradlew
 
-      - name: Build Debug & Release APKs
-        run: ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Build Release App Bundle (AAB)
+        run: ./gradlew bundleRelease --stacktrace
 
       - name: Prepare Output Artifacts
         run: |
