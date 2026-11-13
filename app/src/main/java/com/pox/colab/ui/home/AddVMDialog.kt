@@ -228,8 +228,13 @@ fun AddVMDialog(
                                 }
                             }
 
-                            // Hardware Accelerator selector chips
-                            Text("Hardware Accelerator", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            // Hardware preference (label only: Colab assigns the GPU to the account)
+                            Text("Hardware Preference", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Colab assigns the GPU available to the selected account; this label is shown on the VM card.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -254,13 +259,25 @@ fun AddVMDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 listOf(ResilientProtocol.TMUX_SSH, ResilientProtocol.MOSH_UDP).forEach { proto ->
+                                    val available = proto == ResilientProtocol.TMUX_SSH
                                     FilterChip(
                                         selected = selectedProtocol == proto,
+                                        enabled = available,
                                         onClick = { selectedProtocol = proto },
-                                        label = { Text(if (proto == ResilientProtocol.TMUX_SSH) "tmux SSH" else "Mosh UDP", fontSize = 11.sp) }
+                                        label = {
+                                            Text(
+                                                text = if (available) "tmux SSH" else "Mosh UDP (unavailable)",
+                                                fontSize = 11.sp
+                                            )
+                                        }
                                     )
                                 }
                             }
+                            Text(
+                                text = "Mosh/UDP transport is not available in this build; tmux SSH is used instead.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
 
                             // Tunnel Provider selector chips
                             Text("Tunnel Provider", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -271,13 +288,25 @@ fun AddVMDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 listOf(TunnelProvider.CLOUDFLARE, TunnelProvider.BORE, TunnelProvider.NGROK).forEach { tun ->
+                                    val available = tun != TunnelProvider.NGROK
                                     FilterChip(
                                         selected = selectedTunnelProvider == tun,
+                                        enabled = available,
                                         onClick = { selectedTunnelProvider = tun },
-                                        label = { Text(tun.name, fontSize = 11.sp) }
+                                        label = {
+                                            Text(
+                                                text = if (available) tun.name else "Ngrok (needs auth token)",
+                                                fontSize = 11.sp
+                                            )
+                                        }
                                     )
                                 }
                             }
+                            Text(
+                                text = "Ngrok requires an account auth token, which this build cannot provision.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
 
                             OutlinedTextField(
                                 value = tunnelEndpoint,

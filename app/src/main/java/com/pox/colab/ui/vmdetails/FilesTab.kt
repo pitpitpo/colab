@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.sp
 import com.pox.colab.engine.FileManagerEngine
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.RemoteFile
+import com.pox.colab.ui.component.shimmer.ListItemPlaceholder
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -273,7 +274,7 @@ fun FilesTab(
         if (isLoading && filteredFiles.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
                 repeat(6) {
-                    com.pox.colab.ui.component.shimmer.ListItemPlaceholder()
+                    ListItemPlaceholder()
                 }
             }
         } else if (filteredFiles.isEmpty()) {

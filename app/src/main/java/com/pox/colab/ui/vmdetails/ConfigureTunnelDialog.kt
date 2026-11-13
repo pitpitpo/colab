@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.pox.colab.model.ColabVM
-import com.pox.colab.theme.ColabOrange
 
 @Composable
 fun ConfigureTunnelDialog(
@@ -64,13 +63,13 @@ fun ConfigureTunnelDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     shape = RoundedCornerShape(10.dp),
-                    color = ColabOrange.copy(alpha = 0.15f),
+                    color = MaterialTheme.colorScheme.primaryContainer,
                     modifier = Modifier.padding(end = 10.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Cable,
                         contentDescription = null,
-                        tint = ColabOrange,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(6.dp)
                     )
                 }

@@ -73,6 +73,9 @@ class ResilientSSHManager(
         appendSystemNotice(" Target: ${vm.name} | Host: ${if (h.isNotBlank()) "$h:$p" else "[Unconfigured]"}")
         if (vm.sshConfig.resilientProtocol == ResilientProtocol.TMUX_SSH) {
             appendSystemNotice(" Persistent Tmux Session: $tmuxName")
+        } else {
+            appendSystemNotice(" [!] Mosh/UDP transport is unavailable in this build.")
+            appendSystemNotice("     Falling back to a plain SSH2 shell (no tmux persistence).")
         }
         appendSystemNotice("==================================================")
     }
@@ -269,7 +272,7 @@ class ResilientSSHManager(
                     outputStream.write(attachCmd.toByteArray())
                     outputStream.flush()
                 } else {
-                    appendSystemNotice("[+] Interactive SSH2 shell established.")
+                    appendSystemNotice("[+] Interactive SSH2 shell established (Mosh unavailable, tmux disabled).")
                 }
 
                 startStreamReader(inputStream)

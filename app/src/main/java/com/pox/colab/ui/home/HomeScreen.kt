@@ -404,7 +404,10 @@ fun VMGridCard(
     var menuExpanded by remember { mutableStateOf(false) }
 
     OutlinedCard(
-        modifier = Modifier.fillMaxWidth().clickable { onOpen() },
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable { onOpen() },
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)

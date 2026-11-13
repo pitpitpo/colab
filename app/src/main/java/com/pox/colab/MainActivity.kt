@@ -27,6 +27,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -84,8 +85,12 @@ class MainActivity : ComponentActivity() {
                 pureBlack = isPureBlack
             ) {
                 val view = LocalView.current
+                val backgroundArgb = MaterialTheme.colorScheme.background.toArgb()
                 SideEffect {
                     val window = (view.context as? Activity)?.window ?: return@SideEffect
+                    // Keep the window (behind Compose) in sync with the active theme so
+                    // activity transitions never flash the opposite background.
+                    window.setBackgroundDrawable(ColorDrawable(backgroundArgb))
                     WindowCompat.getInsetsController(window, view).apply {
                         isAppearanceLightStatusBars = !isDark
                         isAppearanceLightNavigationBars = !isDark
