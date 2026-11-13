@@ -217,8 +217,12 @@ def collect_metrics():
 
     try:
         cpu_pct = min(100.0, float(load[0]) * 20.0)
+    uptime_sec = 0
+    try:
+        with open("/proc/uptime", "r") as f:
+            uptime_sec = int(float(f.readline().split()[0]))
     except Exception:
-        cpu_pct = 0.0
+        pass
 
     return {
         "status": "RUNNING",
@@ -232,6 +236,7 @@ def collect_metrics():
         "gpu_vram_total_bytes": vram_total,
         "gpu_vram_used_bytes": vram_used,
         "gpu_temperature_celsius": gpu_temp,
+        "uptime_seconds": uptime_sec,
         "timestamp": time.time()
     }
 

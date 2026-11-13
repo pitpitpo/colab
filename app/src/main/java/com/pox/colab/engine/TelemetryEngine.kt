@@ -67,7 +67,8 @@ object TelemetryEngine {
             gpuModel = obj.optString("gpu_model").takeIf { it.isNotBlank() && it != "null" },
             gpuVramTotalBytes = obj.optLong("gpu_vram_total_bytes", 0L),
             gpuVramUsedBytes = obj.optLong("gpu_vram_used_bytes", 0L),
-            gpuTemperatureCelsius = obj.optInt("gpu_temperature_celsius", 0)
+            gpuTemperatureCelsius = obj.optInt("gpu_temperature_celsius", 0),
+            uptimeSeconds = obj.optLong("uptime_seconds", 0L)
         )
     }
 }

@@ -127,7 +127,8 @@ class AlpineAppContainerManager private constructor(private val context: Context
     private fun runAutoUpgrade(script: File) {
         try {
             val logFile = File(logsDir, "upgrade.log")
-            val process = ProcessBuilder("/bin/sh", script.absolutePath)
+            val shellPath = if (File("/system/bin/sh").exists()) "/system/bin/sh" else "/bin/sh"
+            val process = ProcessBuilder(shellPath, script.absolutePath)
                 .directory(containerRoot)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
                 .redirectError(ProcessBuilder.Redirect.appendTo(logFile))
@@ -144,7 +145,7 @@ class AlpineAppContainerManager private constructor(private val context: Context
                 }
             }
         } catch (e: Exception) {
-            // Emulated sandbox fallback on devices where ProcessBuilder /bin/sh is sandboxed
+            // Emulated sandbox fallback on devices where ProcessBuilder is sandboxed
             _containerStatusMessage.value = "Alpine runtime active (sandbox emulation mode)"
         }
     }
@@ -174,35 +175,58 @@ class AlpineAppContainerManager private constructor(private val context: Context
 
         val configFile = File(accountDir, "instance_config.json")
         val credentialsFile = File(accountDir, "credentials.json")
+        val tokenFile = File(accountDir, "token.json")
 
         configFile.writeText(gson.toJson(configMap))
         credentialsFile.writeText(gson.toJson(credsMap))
+
+        val tokenJsonStr = if (account.oauthToken.isNotBlank() && account.oauthToken.startsWith("{")) {
+            account.oauthToken
+        } else {
+            gson.toJson(
+                mapOf(
+                    "token" to account.tokenOrCookie,
+                    "refresh_token" to account.tokenOrCookie,
+                    "token_uri" to "https://oauth2.googleapis.com/token",
+                    "client_id" to ColabAuthEngine.CLIENT_ID,
+                    "scopes" to ColabAuthEngine.SCOPES,
+                    "expiry" to System.currentTimeMillis() + 3600_000L,
+                    "account" to account.email
+                )
+            )
+        }
+        tokenFile.writeText(tokenJsonStr)
 
         // Set owner-only secure permissions
         configFile.setReadable(true, true)
         configFile.setWritable(true, true)
         credentialsFile.setReadable(true, true)
         credentialsFile.setWritable(true, true)
+        tokenFile.setReadable(true, true)
+        tokenFile.setWritable(true, true)
 
         accountDir.absolutePath
     }
 
     /**
-     * Updates an account's state (enabled/disabled and Pro/Free tier) in the Alpine instance directory.
+     * Updates an account's state (enabled/disabled and Pro/Free tier) in the Alpine instance directory with upsert.
      */
     suspend fun updateAccountStatus(accountId: String, isEnabled: Boolean, tier: String) = withContext(Dispatchers.IO) {
         val accountDir = File(instancesDir, accountId)
+        if (!accountDir.exists()) accountDir.mkdirs()
         val configFile = File(accountDir, "instance_config.json")
-        if (configFile.exists()) {
-            try {
-                val type = object : com.google.gson.reflect.TypeToken<MutableMap<String, Any>>() {}.type
-                val map: MutableMap<String, Any> = gson.fromJson(configFile.readText(), type) ?: mutableMapOf()
-                map["enabled"] = isEnabled
-                map["tier"] = tier
-                map["updatedAt"] = System.currentTimeMillis()
-                configFile.writeText(gson.toJson(map))
-            } catch (_: Exception) {}
-        }
+        try {
+            val type = object : com.google.gson.reflect.TypeToken<MutableMap<String, Any>>() {}.type
+            val map: MutableMap<String, Any> = if (configFile.exists()) {
+                gson.fromJson(configFile.readText(), type) ?: mutableMapOf()
+            } else {
+                mutableMapOf("accountId" to accountId, "registeredAt" to System.currentTimeMillis())
+            }
+            map["enabled"] = isEnabled
+            map["tier"] = tier
+            map["updatedAt"] = System.currentTimeMillis()
+            configFile.writeText(gson.toJson(map))
+        } catch (_: Exception) {}
     }
 
     /**

@@ -206,8 +206,9 @@ class VMRepository(
     fun getVMById(id: String): ColabVM? = _vms.value.find { it.id == id }
 
     fun updateMetrics(vmId: String, metrics: VMMetrics) {
-        val target = getVMById(vmId) ?: return
-        updateVM(target.copy(metrics = metrics))
+        _vms.update { current ->
+            current.map { if (it.id == vmId) it.copy(metrics = metrics) else it }
+        }
     }
 
     fun spinUpAlpineVM(vmId: String) {
