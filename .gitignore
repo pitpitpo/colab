@@ -19,3 +19,13 @@ build/
 .gradle/
 .agents/
 .codegraph/
+
+# Agent guidelines and workflow standards
+/AGENTS.md
+/DEFINITION_OF_DONE.md
+/MISTAKES.md
+/RULES.md
+/SECURITY.md
+/TESTING.md
+/WORKFLOW.md
+
