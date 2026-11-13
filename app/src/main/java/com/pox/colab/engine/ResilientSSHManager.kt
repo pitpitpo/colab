@@ -41,13 +41,13 @@ data class TerminalLine(
 )
 
 class ResilientSSHManager(
-    initialVM: ColabVM,
+    vm: ColabVM,
     private val scope: CoroutineScope,
     var onMetricsUpdated: ((VMMetrics) -> Unit)? = null,
     var onConnectionStateChanged: ((SSHConnectionState) -> Unit)? = null,
     private val tmuxSessionOverride: String? = null
 ) {
-    var vm: ColabVM = initialVM
+    var vm: ColabVM = vm
         private set
     private val _connectionState = MutableStateFlow(SSHConnectionState.DISCONNECTED)
     val connectionState: StateFlow<SSHConnectionState> = _connectionState.asStateFlow()

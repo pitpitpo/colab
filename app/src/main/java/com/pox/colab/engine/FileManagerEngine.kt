@@ -26,10 +26,10 @@ import kotlinx.coroutines.cancel
 
 class FileManagerEngine(
     private val context: Context,
-    initialVM: ColabVM,
+    vm: ColabVM,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
-    private var vm: ColabVM = initialVM
+    private var vm: ColabVM = vm
     private val _currentPath = MutableStateFlow("/content")
     val currentPath: StateFlow<String> = _currentPath.asStateFlow()
 
