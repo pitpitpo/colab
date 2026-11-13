@@ -123,6 +123,7 @@ class AlpineBootstrapGeneratorTest {
 
         val cloudflareScript = ColabBootstrapGenerator.generateBootstrapScript(baseVM)
         assertTrue(cloudflareScript.contains("cloudflared"))
+        assertTrue(cloudflareScript.contains("trycloudflare"))
         assertTrue(cloudflareScript.contains("trycloudflare.com"))
 
         val ngrokScript = ColabBootstrapGenerator.generateBootstrapScript(baseVM.copy(tunnelProvider = TunnelProvider.NGROK))

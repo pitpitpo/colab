@@ -18,12 +18,12 @@ object ColabBootstrapGenerator {
 
         val tunnelCmd = when (vm.tunnelProvider) {
             TunnelProvider.CLOUDFLARE -> """
-                # Install Cloudflared Tunnel
+                # Install Cloudflared Tunnel (*.trycloudflare.com)
                 if ! command -v cloudflared &> /dev/null; then
                     curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
                     chmod +x /usr/local/bin/cloudflared
                 fi
-                echo "[*] Starting Cloudflare Quick Tunnel..."
+                echo "[*] Starting Cloudflare Quick Tunnel (*.trycloudflare.com)..."
                 cloudflared tunnel --url ssh://localhost:${vm.sshConfig.port} > /tmp/tunnel.log 2>&1 &
                 
                 # Auto-detect Cloudflare endpoint and broadcast to app
