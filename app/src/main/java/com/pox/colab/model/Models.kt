@@ -26,6 +26,23 @@ enum class SSHAuthMethod {
     PUBLIC_KEY
 }
 
+enum class RuntimeEngineMode(
+    val label: String,
+    val description: String,
+    val badge: String = ""
+) {
+    NATIVE_API(
+        label = "Direct Native API (Zero Bloat)",
+        description = "Direct REST API client connecting straight to Google Colab allocation and kernel endpoints. Extremely fast, lightweight, and requires no local container or rootfs.",
+        badge = "Option A • Zero Bloat"
+    ),
+    ALPINE_PROOT(
+        label = "Embedded Alpine Container (PRoot + colab-cli)",
+        description = "Local embedded Alpine Linux userland running via PRoot hosting isolated Colab CLI instances per account.",
+        badge = "Option B • PRoot Sandbox"
+    )
+}
+
 enum class VMStatus {
     STOPPED,
     STARTING,

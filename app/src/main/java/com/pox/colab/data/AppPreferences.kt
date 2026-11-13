@@ -6,6 +6,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.ColabVM
+import com.pox.colab.model.RuntimeEngineMode
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +30,9 @@ class AppPreferences(context: Context) {
 
     private val _consoleBackgroundFlow = MutableStateFlow(getConsoleBackground())
     val consoleBackgroundFlow: StateFlow<String> = _consoleBackgroundFlow.asStateFlow()
+
+    private val _runtimeEngineModeFlow = MutableStateFlow(getRuntimeEngineMode())
+    val runtimeEngineModeFlow: StateFlow<RuntimeEngineMode> = _runtimeEngineModeFlow.asStateFlow()
 
     fun loadAccounts(): List<ColabAccount> {
         val raw = prefs.getString("accounts_json", null) ?: return emptyList()
@@ -112,5 +116,19 @@ class AppPreferences(context: Context) {
 
     fun setConsoleBgForTerminal(vmId: String, terminalId: String, bgKey: String) {
         prefs.edit().putString("console_bg_term_${vmId}_$terminalId", bgKey).apply()
+    }
+
+    fun getRuntimeEngineMode(): RuntimeEngineMode {
+        val name = prefs.getString("runtime_engine_mode", RuntimeEngineMode.NATIVE_API.name)
+        return try {
+            RuntimeEngineMode.valueOf(name ?: RuntimeEngineMode.NATIVE_API.name)
+        } catch (_: Exception) {
+            RuntimeEngineMode.NATIVE_API
+        }
+    }
+
+    fun setRuntimeEngineMode(mode: RuntimeEngineMode) {
+        prefs.edit().putString("runtime_engine_mode", mode.name).apply()
+        _runtimeEngineModeFlow.value = mode
     }
 }
