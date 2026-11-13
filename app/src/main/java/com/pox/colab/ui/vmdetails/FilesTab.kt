@@ -79,7 +79,6 @@ import com.pox.colab.theme.TerminalForeground
 import kotlinx.coroutines.launch
 
 import androidx.compose.material.icons.filled.Cable
-import com.pox.colab.theme.ColabOrange
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

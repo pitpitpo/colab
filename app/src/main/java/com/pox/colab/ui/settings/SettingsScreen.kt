@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.util.Base64
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -19,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -43,15 +41,12 @@ import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.ColabVM
-import com.pox.colab.theme.ColabOrange
 import com.pox.colab.theme.resolveConsoleBackground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.security.KeyPairGenerator
-import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
 
 data class ReleaseAsset(

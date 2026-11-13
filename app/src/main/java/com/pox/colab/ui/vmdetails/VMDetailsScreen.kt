@@ -49,7 +49,6 @@ import androidx.compose.ui.unit.sp
 import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
 import com.pox.colab.model.VMStatus
-import com.pox.colab.theme.ColabOrange
 import com.pox.colab.ui.home.StatusIndicatorDot
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
