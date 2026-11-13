@@ -268,8 +268,7 @@ object ColabAuthEngine {
                         val rate = ccuJson.optDouble("consumptionRateHourly", 0.0)
 
                         detectedTier = when {
-                            balance >= 500.0 -> "Colab Pro+"
-                            balance > 0.0 || rate > 0.0 -> "Colab Pro"
+                            balance > 0.0 || rate > 0.0 -> "Pro"
                             else -> "Free"
                         }
                     }
@@ -289,6 +288,7 @@ object ColabAuthEngine {
                 put("scopes", org.json.JSONArray(SCOPES))
                 put("universe_domain", "googleapis.com")
                 put("account", fetchedEmail)
+                put("expiry", (System.currentTimeMillis() + 3600_000L).toString())
             }
 
             Result.success(

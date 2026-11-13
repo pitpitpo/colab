@@ -98,7 +98,7 @@ fun SSHTab(
     var sessionCounter by remember { mutableIntStateOf(1) }
 
     // Multi-tab session state
-    val sessions = remember(vm.id) {
+    val sessions = remember(vm.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
         mutableStateListOf<ConsoleTabSession>().apply {
             add(
                 ConsoleTabSession(
@@ -200,13 +200,11 @@ fun SSHTab(
                                 )
 
                                 if (sessions.size > 1) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Close tab",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Box(
                                         modifier = Modifier
-                                            .size(14.dp)
+                                            .size(28.dp)
+                                            .clip(CircleShape)
                                             .clickable {
                                                 session.manager.disconnect()
                                                 val idx = sessions.indexOf(session)
@@ -214,8 +212,16 @@ fun SSHTab(
                                                 if (activeSessionId == session.id) {
                                                     activeSessionId = sessions.getOrNull(idx.coerceAtMost(sessions.lastIndex))?.id ?: ""
                                                 }
-                                            }
-                                    )
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Close tab",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -805,7 +805,7 @@ fun SignInAccountDialog(
                     scope.launch {
                         try {
                             val profile = com.pox.colab.engine.ColabAuthEngine.exchangeCodeForProfile(authCode, authSession)
-                            onConfirm(profile.email, profile.displayName, profile.accessToken, profile.tier)
+                            onConfirm(profile.email, profile.displayName, profile.tokenJson.ifBlank { profile.accessToken }, profile.tier)
                         } catch (e: Exception) {
                             authError = e.message ?: "Authentication failed"
                         } finally {

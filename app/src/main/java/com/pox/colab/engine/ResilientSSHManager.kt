@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -342,22 +343,22 @@ class ResilientSSHManager(
 
     private fun appendRawOutput(chunk: String) {
         val lines = chunk.split("\r\n", "\n")
-        val current = _terminalOutput.value.toMutableList()
-        lines.forEach { line ->
-            if (line.isNotEmpty()) {
-                current.add(TerminalLine(text = line, isSystemNotice = false))
+        _terminalOutput.update { prev ->
+            val next = prev.toMutableList()
+            lines.forEach { line ->
+                if (line.isNotEmpty()) {
+                    next.add(TerminalLine(text = line, isSystemNotice = false))
+                }
             }
-        }
-        if (current.size > 2000) {
-            _terminalOutput.value = current.takeLast(1500)
-        } else {
-            _terminalOutput.value = current
+            if (next.size > 2000) next.takeLast(1500) else next
         }
     }
 
     private fun appendSystemNotice(notice: String) {
-        val current = _terminalOutput.value.toMutableList()
-        current.add(TerminalLine(text = notice, isSystemNotice = true))
-        _terminalOutput.value = current
+        _terminalOutput.update { prev ->
+            val next = prev.toMutableList()
+            next.add(TerminalLine(text = notice, isSystemNotice = true))
+            if (next.size > 2000) next.takeLast(1500) else next
+        }
     }
 }
