@@ -1,7 +1,9 @@
 package com.pox.colab
 
 import com.pox.colab.data.VMRepository
+import com.pox.colab.model.RuntimeEngineMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VMRepositoryTest {
@@ -36,5 +38,22 @@ class VMRepositoryTest {
         val (host, port) = VMRepository.parseEndpoint("   ")
         assertEquals("", host)
         assertEquals(22, port)
+    }
+
+    @Test
+    fun runtimeEngineMode_enumProperties() {
+        val nativeMode = RuntimeEngineMode.NATIVE_API
+        assertEquals("NATIVE_API", nativeMode.name)
+        assertTrue(nativeMode.label.contains("Native API") || nativeMode.label.contains("Zero Bloat"))
+        assertTrue(nativeMode.description.isNotBlank())
+        assertTrue(nativeMode.badge.isNotBlank())
+
+        val alpineMode = RuntimeEngineMode.ALPINE_PROOT
+        assertEquals("ALPINE_PROOT", alpineMode.name)
+        assertTrue(alpineMode.label.contains("Alpine") || alpineMode.label.contains("PRoot"))
+        assertTrue(alpineMode.description.isNotBlank())
+        assertTrue(alpineMode.badge.isNotBlank())
+
+        assertEquals(2, RuntimeEngineMode.values().size)
     }
 }

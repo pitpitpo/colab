@@ -103,6 +103,7 @@ import com.google.gson.JsonObject
 import com.pox.colab.BuildConfig
 import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
+import com.pox.colab.model.RuntimeEngineMode
 import com.pox.colab.engine.AlpineAppContainerManager
 import com.pox.colab.engine.ColabAuthEngine
 import com.pox.colab.engine.ColabAuthSession
@@ -146,6 +147,9 @@ fun SettingsScreen(
     val vms by repository.vms.collectAsState()
 
     var showSignInDialog by remember { mutableStateOf(false) }
+
+    // Runtime Provisioning Engine state
+    var runtimeEngineMode by remember { mutableStateOf(preferences.getRuntimeEngineMode()) }
 
     // Theme state
     var dynamicColorEnabled by remember { mutableStateOf(preferences.isDynamicColorEnabled()) }
@@ -209,7 +213,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Alpine Colab CLI PKCE instances, compute quotas & tiers",
+                                text = "Colab OAuth accounts, compute quotas & tiers",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -247,7 +251,7 @@ fun SettingsScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text("No Connected Colab Accounts", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("Tap 'Add Account' to spawn a dedicated CLI instance inside Alpine.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Tap 'Add Account' to connect your Google Colab account.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     } else {
@@ -340,6 +344,229 @@ fun SettingsScreen(
 
                                     if (index < accounts.lastIndex) {
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // HUB: Runtime Provisioning Engine
+            // =========================================================================
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Runtime Provisioning Engine",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Select how Google Colab runtimes are allocated and provisioned",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            // Option A: Native Colab API (Zero Bloat)
+                            val isNative = runtimeEngineMode == RuntimeEngineMode.NATIVE_API
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isNative) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                border = BorderStroke(
+                                    if (isNative) 2.dp else 1.dp,
+                                    if (isNative) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .selectable(
+                                        selected = isNative,
+                                        role = Role.RadioButton
+                                    ) {
+                                        runtimeEngineMode = RuntimeEngineMode.NATIVE_API
+                                        preferences.setRuntimeEngineMode(RuntimeEngineMode.NATIVE_API)
+                                        Toast.makeText(context, "Runtime Engine: Direct Native API (Zero Bloat)", Toast.LENGTH_SHORT).show()
+                                    }
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = isNative,
+                                            onClick = {
+                                                runtimeEngineMode = RuntimeEngineMode.NATIVE_API
+                                                preferences.setRuntimeEngineMode(RuntimeEngineMode.NATIVE_API)
+                                                Toast.makeText(context, "Runtime Engine: Direct Native API (Zero Bloat)", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Option A: Native Colab API",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleSmall
+                                                )
+                                                Surface(
+                                                    color = if (isNative) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = if (isNative) "ACTIVE" else "ZERO BLOAT",
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        color = if (isNative) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = "Direct REST client communicating directly with Google Colab backend runtime endpoints.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 48.dp)
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text("Direct REST API", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text("Zero Local Storage", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text("Instant Boot", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Option B: Embedded Alpine Container (PRoot + colab-cli)
+                            val isAlpine = runtimeEngineMode == RuntimeEngineMode.ALPINE_PROOT
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isAlpine) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                border = BorderStroke(
+                                    if (isAlpine) 2.dp else 1.dp,
+                                    if (isAlpine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .selectable(
+                                        selected = isAlpine,
+                                        role = Role.RadioButton
+                                    ) {
+                                        runtimeEngineMode = RuntimeEngineMode.ALPINE_PROOT
+                                        preferences.setRuntimeEngineMode(RuntimeEngineMode.ALPINE_PROOT)
+                                        Toast.makeText(context, "Runtime Engine: Embedded Alpine Container (PRoot + colab-cli)", Toast.LENGTH_SHORT).show()
+                                    }
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = isAlpine,
+                                            onClick = {
+                                                runtimeEngineMode = RuntimeEngineMode.ALPINE_PROOT
+                                                preferences.setRuntimeEngineMode(RuntimeEngineMode.ALPINE_PROOT)
+                                                Toast.makeText(context, "Runtime Engine: Embedded Alpine Container (PRoot + colab-cli)", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Option B: Embedded Alpine Container",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleSmall
+                                                )
+                                                Surface(
+                                                    color = if (isAlpine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiaryContainer,
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = if (isAlpine) "ACTIVE" else "PROOT SANDBOX",
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        color = if (isAlpine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiaryContainer,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = "Isolated PRoot Alpine userland hosting local colab-cli instances and credentials per account.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 48.dp)
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text("PRoot Emulation", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text("colab-cli multi-mgr", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text("Isolated Instance Dirs", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
                                     }
                                 }
                             }

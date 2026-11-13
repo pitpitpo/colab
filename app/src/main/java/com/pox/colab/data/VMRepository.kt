@@ -3,16 +3,20 @@ package com.pox.colab.data
 import android.content.Context
 import com.pox.colab.engine.AlpineAppContainerManager
 import com.pox.colab.engine.AlpineBootstrapGenerator
+import com.pox.colab.engine.ColabAccelerator
+import com.pox.colab.engine.ColabApiEngine
 import com.pox.colab.engine.TunnelDiscoveryEngine
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.HardwareAccelerator
 import com.pox.colab.model.ResilientProtocol
+import com.pox.colab.model.RuntimeEngineMode
 import com.pox.colab.model.TunnelProvider
 import com.pox.colab.model.VMMetrics
 import com.pox.colab.model.VMStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,7 +28,8 @@ import kotlinx.coroutines.launch
 class VMRepository(
     private val preferences: AppPreferences,
     private val context: Context? = null,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val colabApiEngine: ColabApiEngine = ColabApiEngine()
 ) {
     private val appContext: Context?
         get() = context ?: try { com.pox.colab.ColabApp.instance } catch (_: Exception) { null }
@@ -244,11 +249,90 @@ class VMRepository(
         }
     }
 
-    fun spinUpVM(vmId: String) {
-        val target = getVMById(vmId) ?: return
-        updateVM(target.copy(status = VMStatus.RUNNING))
-        if (target.tunnelUrl.isNullOrBlank()) {
-            startTunnelDiscovery(vmId)
+    private fun mapToColabAccelerator(acc: HardwareAccelerator): ColabAccelerator = when (acc) {
+        HardwareAccelerator.NONE -> ColabAccelerator.NONE
+        HardwareAccelerator.T4 -> ColabAccelerator.T4
+        HardwareAccelerator.V100 -> ColabAccelerator.V100
+        HardwareAccelerator.A100 -> ColabAccelerator.A100
+    }
+
+    fun spinUpVM(vmId: String): Job {
+        val target = getVMById(vmId) ?: return scope.launch {}
+        updateVM(target.copy(status = VMStatus.STARTING))
+
+        return scope.launch(Dispatchers.IO) {
+            try {
+                val mode = preferences.getRuntimeEngineMode()
+                val account = _accounts.value.find { it.id == target.accountId } ?: _activeAccount.value
+                val token = account?.oauthToken?.ifBlank { account.tokenOrCookie } ?: account?.tokenOrCookie ?: ""
+
+                // Ensure bootstrap script is generated
+                val bootstrapScript = if (target.bootstrapScript.isNotBlank()) {
+                    target.bootstrapScript
+                } else {
+                    val script = AlpineBootstrapGenerator.generateBootstrapScript(target, token)
+                    updateVM(target.copy(bootstrapScript = script))
+                    script
+                }
+
+                // Start asynchronous rendezvous tunnel discovery so the VM announces its tunnel
+                startTunnelDiscovery(vmId)
+
+                when (mode) {
+                    RuntimeEngineMode.NATIVE_API -> {
+                        // Option A: Direct REST runtime allocation & bootstrap cell execution
+                        val accelerator = mapToColabAccelerator(target.hardwareAccelerator)
+                        val result = colabApiEngine.runBootstrapScript(
+                            bearerToken = token,
+                            bootstrapScript = bootstrapScript,
+                            accelerator = accelerator
+                        )
+
+                        result.fold(
+                            onSuccess = { (_, execResult) ->
+                                if (!execResult.success && execResult.httpStatus >= 400) {
+                                    val current = getVMById(vmId)
+                                    if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
+                                        updateVM(current.copy(status = VMStatus.ERROR))
+                                    }
+                                }
+                            },
+                            onFailure = {
+                                val current = getVMById(vmId)
+                                if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
+                                    updateVM(current.copy(status = VMStatus.ERROR))
+                                }
+                            }
+                        )
+                    }
+
+                    RuntimeEngineMode.ALPINE_PROOT -> {
+                        // Option B: Embedded Alpine Container with PRoot + colab-cli
+                        val ctx = appContext
+                        if (ctx != null) {
+                            val containerMgr = AlpineAppContainerManager.getInstance(ctx)
+                            val execResult = containerMgr.executeColabCli(
+                                target.accountId,
+                                "runtime",
+                                "run",
+                                "--code",
+                                bootstrapScript
+                            )
+                            if (execResult.exitCode != 0) {
+                                val current = getVMById(vmId)
+                                if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
+                                    updateVM(current.copy(status = VMStatus.ERROR))
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                val current = getVMById(vmId)
+                if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
+                    updateVM(current.copy(status = VMStatus.ERROR))
+                }
+            }
         }
     }
 
