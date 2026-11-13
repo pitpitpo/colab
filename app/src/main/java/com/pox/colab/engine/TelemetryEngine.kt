@@ -44,7 +44,7 @@ object TelemetryEngine {
     }
 
     /**
-     * Parses real telemetry JSON produced by the Alpine agent daemon (/tmp/colab_metrics.json or /api/status).
+     * Parses real telemetry JSON produced by the Colab telemetry agent daemon (/tmp/colab_metrics.json or /api/status).
      */
     fun parseMetricsJson(jsonStr: String): VMMetrics {
         return try {
