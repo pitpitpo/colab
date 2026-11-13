@@ -21,10 +21,13 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.Vector
 
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+
 class FileManagerEngine(
     private val context: Context,
     private val vm: ColabVM,
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
     private val _currentPath = MutableStateFlow("/content")
     val currentPath: StateFlow<String> = _currentPath.asStateFlow()
@@ -148,12 +151,21 @@ class FileManagerEngine(
     suspend fun readFileContent(file: RemoteFile): String = withContext(Dispatchers.IO) {
         try {
             val sftp = getConnectedSftp()
-            val inStream = sftp.get(file.path)
-            val buffer = ByteArray(256 * 1024)
-            val bytesRead = inStream.read(buffer)
-            inStream.close()
-            if (bytesRead <= 0) return@withContext "[Empty File]"
-            String(buffer, 0, bytesRead, Charsets.UTF_8)
+            val out = java.io.ByteArrayOutputStream()
+            sftp.get(file.path).use { inStream ->
+                val buffer = ByteArray(8192)
+                var read: Int
+                var total = 0
+                val maxPreviewBytes = 1024 * 1024 // 1 MB preview limit
+                while (inStream.read(buffer).also { read = it } != -1) {
+                    out.write(buffer, 0, read)
+                    total += read
+                    if (total >= maxPreviewBytes) break
+                }
+            }
+            val bytes = out.toByteArray()
+            if (bytes.isEmpty()) return@withContext "[Empty File]"
+            bytes.toString(Charsets.UTF_8)
         } catch (e: Exception) {
             "Error loading remote file: ${e.message}"
         }
@@ -253,6 +265,10 @@ class FileManagerEngine(
     }
 
     fun close() {
+        try {
+            scope.cancel()
+        } catch (_: Exception) {}
+
         try {
             sftpChannel?.disconnect()
         } catch (_: Exception) {}

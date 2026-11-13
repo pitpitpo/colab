@@ -32,8 +32,10 @@ enum class SSHConnectionState {
     ERROR
 }
 
+private val globalTerminalLineSeq = java.util.concurrent.atomic.AtomicLong(1L)
+
 data class TerminalLine(
-    val id: Long = System.nanoTime(),
+    val id: Long = globalTerminalLineSeq.incrementAndGet(),
     val text: String,
     val isSystemNotice: Boolean = false
 )
@@ -42,6 +44,7 @@ class ResilientSSHManager(
     private val vm: ColabVM,
     private val scope: CoroutineScope,
     var onMetricsUpdated: ((VMMetrics) -> Unit)? = null,
+    var onConnectionStateChanged: ((SSHConnectionState) -> Unit)? = null,
     private val tmuxSessionOverride: String? = null
 ) {
     private val _connectionState = MutableStateFlow(SSHConnectionState.DISCONNECTED)
@@ -86,7 +89,7 @@ class ResilientSSHManager(
     fun connect() {
         val (host, _) = resolveHostAndPort()
         if (host.isBlank()) {
-            _connectionState.value = SSHConnectionState.DISCONNECTED
+            setConnectionState(SSHConnectionState.DISCONNECTED)
             _statusMessage.value = "Tunnel endpoint required"
             appendSystemNotice("[!] No active tunnel host specified for VM '${vm.name}'.")
             appendSystemNotice("[!] Run the bootstrap script in Colab and configure the tunnel endpoint (e.g. bore.pub:38491).")
@@ -107,7 +110,7 @@ class ResilientSSHManager(
         supervisorJob?.cancel()
         readerJob?.cancel()
         closeStreamsAndSession()
-        _connectionState.value = SSHConnectionState.DISCONNECTED
+        setConnectionState(SSHConnectionState.DISCONNECTED)
         _statusMessage.value = "Disconnected"
         appendSystemNotice("[!] Disconnected.")
     }
@@ -117,7 +120,7 @@ class ResilientSSHManager(
         isUserIntentionallyDisconnected = false
         scope.launch(Dispatchers.IO) {
             closeStreamsAndSession()
-            _connectionState.value = SSHConnectionState.RECONNECTING
+            setConnectionState(SSHConnectionState.RECONNECTING)
             attemptConnect()
         }
     }
@@ -205,23 +208,37 @@ class ResilientSSHManager(
         }
     }
 
+    private fun setConnectionState(newState: SSHConnectionState) {
+        _connectionState.value = newState
+        onConnectionStateChanged?.invoke(newState)
+    }
+
     private suspend fun attemptConnect() {
         withContext(Dispatchers.IO) {
             try {
                 val (targetHost, targetPort) = resolveHostAndPort()
                 if (targetHost.isBlank()) {
-                    _connectionState.value = SSHConnectionState.DISCONNECTED
+                    setConnectionState(SSHConnectionState.DISCONNECTED)
                     _statusMessage.value = "Tunnel endpoint required"
                     return@withContext
                 }
 
-                _connectionState.value = SSHConnectionState.CONNECTING
+                setConnectionState(SSHConnectionState.CONNECTING)
                 _statusMessage.value = "Connecting to $targetHost:$targetPort..."
                 appendSystemNotice("[*] Connecting to $targetHost:$targetPort...")
 
                 val session = jsch.getSession(vm.sshConfig.username, targetHost, targetPort)
                 if (vm.sshConfig.authMethod == SSHAuthMethod.PASSWORD) {
                     session.setPassword(vm.sshConfig.password)
+                } else if (vm.sshConfig.authMethod == SSHAuthMethod.PUBLIC_KEY) {
+                    val key = vm.sshConfig.privateKey
+                    if (!key.isNullOrBlank()) {
+                        try {
+                            jsch.addIdentity("vm_${vm.id}_key", key.toByteArray(StandardCharsets.UTF_8), null, null)
+                        } catch (ke: Exception) {
+                            appendSystemNotice("[!] Failed to load private key: ${ke.message}")
+                        }
+                    }
                 }
                 session.setConfig("StrictHostKeyChecking", "no")
                 session.setConfig("PreferredAuthentications", "password,publickey,keyboard-interactive")
@@ -242,7 +259,7 @@ class ResilientSSHManager(
                 shellChannel = channel
                 shellOutputStream = outputStream
 
-                _connectionState.value = SSHConnectionState.CONNECTED
+                setConnectionState(SSHConnectionState.CONNECTED)
                 _statusMessage.value = "Connected"
 
                 val tmuxName = tmuxSessionOverride ?: vm.sshConfig.tmuxSessionName
@@ -258,7 +275,7 @@ class ResilientSSHManager(
                 startStreamReader(inputStream)
 
             } catch (e: Exception) {
-                _connectionState.value = SSHConnectionState.ERROR
+                setConnectionState(SSHConnectionState.ERROR)
                 _statusMessage.value = "Connection failed: ${e.message ?: "Host unreachable"}"
                 appendSystemNotice("[!] Connection failed: ${e.message ?: "Host unreachable"}")
             }
@@ -321,7 +338,7 @@ class ResilientSSHManager(
     private fun triggerAutoReconnect() {
         if (isUserIntentionallyDisconnected) return
         closeStreamsAndSession()
-        _connectionState.value = SSHConnectionState.RECONNECTING
+        setConnectionState(SSHConnectionState.RECONNECTING)
         _statusMessage.value = "Reconnecting..."
         appendSystemNotice("[~] Reconnecting to preserve session...")
     }

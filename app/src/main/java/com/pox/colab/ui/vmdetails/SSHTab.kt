@@ -63,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -72,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import com.pox.colab.data.AppPreferences
 import com.pox.colab.engine.ResilientSSHManager
 import com.pox.colab.engine.SSHConnectionState
+import com.pox.colab.service.SSHBackgroundService
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.VMMetrics
 import com.pox.colab.theme.ColabOrange
@@ -93,8 +95,10 @@ fun SSHTab(
     vm: ColabVM,
     preferences: AppPreferences,
     onConfigureTunnel: () -> Unit,
-    onMetricsUpdated: ((VMMetrics) -> Unit)? = null
+    onMetricsUpdated: ((VMMetrics) -> Unit)? = null,
+    onStatusChanged: ((VMStatus) -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var sessionCounter by remember { mutableIntStateOf(1) }
 
@@ -109,6 +113,15 @@ fun SSHTab(
                         vm = vm,
                         scope = scope,
                         onMetricsUpdated = onMetricsUpdated,
+                        onConnectionStateChanged = { state ->
+                            when (state) {
+                                SSHConnectionState.CONNECTED -> onStatusChanged?.invoke(VMStatus.RUNNING)
+                                SSHConnectionState.CONNECTING -> onStatusChanged?.invoke(VMStatus.STARTING)
+                                SSHConnectionState.RECONNECTING -> onStatusChanged?.invoke(VMStatus.RECONNECTING)
+                                SSHConnectionState.ERROR -> onStatusChanged?.invoke(VMStatus.ERROR)
+                                SSHConnectionState.DISCONNECTED -> onStatusChanged?.invoke(VMStatus.STOPPED)
+                            }
+                        },
                         tmuxSessionOverride = vm.sshConfig.tmuxSessionName
                     )
                 )
@@ -136,8 +149,10 @@ fun SSHTab(
     }
 
     DisposableEffect(vm.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
+        SSHBackgroundService.start(context, vm.name)
         onDispose {
             sessions.forEach { it.manager.disconnect() }
+            SSHBackgroundService.stop(context)
         }
     }
 
@@ -242,6 +257,15 @@ fun SSHTab(
                                 vm = vm,
                                 scope = scope,
                                 onMetricsUpdated = onMetricsUpdated,
+                                onConnectionStateChanged = { state ->
+                                    when (state) {
+                                        SSHConnectionState.CONNECTED -> onStatusChanged?.invoke(VMStatus.RUNNING)
+                                        SSHConnectionState.CONNECTING -> onStatusChanged?.invoke(VMStatus.STARTING)
+                                        SSHConnectionState.RECONNECTING -> onStatusChanged?.invoke(VMStatus.RECONNECTING)
+                                        SSHConnectionState.ERROR -> onStatusChanged?.invoke(VMStatus.ERROR)
+                                        SSHConnectionState.DISCONNECTED -> onStatusChanged?.invoke(VMStatus.STOPPED)
+                                    }
+                                },
                                 tmuxSessionOverride = "${vm.sshConfig.tmuxSessionName}_$sessionCounter"
                             )
                         )
@@ -342,7 +366,7 @@ private fun ActiveSessionTerminalView(
 
     LaunchedEffect(terminalLines.size) {
         if (terminalLines.isNotEmpty()) {
-            listState.animateScrollToItem(terminalLines.lastIndex)
+            listState.scrollToItem(terminalLines.lastIndex)
         }
     }
 

@@ -64,11 +64,10 @@ class VMRepository(
             tier = tier,
             isActive = _accounts.value.isEmpty()
         )
-        _accounts.update { current ->
-            val updated = current + account
-            preferences.saveAccounts(updated)
-            updated
+        val updated = _accounts.updateAndGet { current ->
+            current + account
         }
+        preferences.saveAccounts(updated)
 
         if (_activeAccount.value == null || account.isActive) {
             setActiveAccount(account.id)
@@ -83,14 +82,19 @@ class VMRepository(
     }
 
     fun removeAccount(context: Context, id: String) {
-        _accounts.update { current ->
-            val updated = current.filter { it.id != id }
-            preferences.saveAccounts(updated)
-            updated
+        val updatedAccounts = _accounts.updateAndGet { current ->
+            current.filter { it.id != id }
         }
+        preferences.saveAccounts(updatedAccounts)
+
+        // Cascade delete VMs associated with this removed account to prevent orphans
+        val updatedVMs = _vms.updateAndGet { current ->
+            current.filter { it.accountId != id }
+        }
+        preferences.saveVMs(updatedVMs)
 
         if (_activeAccount.value?.id == id) {
-            val nextActive = _accounts.value.firstOrNull()
+            val nextActive = updatedAccounts.firstOrNull()
             setActiveAccount(nextActive?.id)
         }
 
@@ -104,20 +108,19 @@ class VMRepository(
         preferences.setActiveAccountId(id)
         val target = _accounts.value.find { it.id == id }
         _activeAccount.value = target
-        _accounts.update { current ->
-            val updated = current.map { it.copy(isActive = it.id == id) }
-            preferences.saveAccounts(updated)
-            updated
+        val updated = _accounts.updateAndGet { current ->
+            current.map { it.copy(isActive = it.id == id) }
         }
+        preferences.saveAccounts(updated)
     }
 
     fun toggleAccountEnabled(id: String, isEnabled: Boolean, context: Context? = null) {
-        _accounts.update { current ->
-            val updated = current.map { if (it.id == id) it.copy(isEnabled = isEnabled) else it }
-            preferences.saveAccounts(updated)
-            updated
+        val updated = _accounts.updateAndGet { current ->
+            current.map { if (it.id == id) it.copy(isEnabled = isEnabled) else it }
         }
-        val target = _accounts.value.find { it.id == id }
+        preferences.saveAccounts(updated)
+
+        val target = updated.find { it.id == id }
         if (target != null && context != null) {
             scope.launch {
                 AlpineAppContainerManager.getInstance(context).updateAccountStatus(id, isEnabled, target.tier)
@@ -126,12 +129,12 @@ class VMRepository(
     }
 
     fun updateAccountTier(id: String, tier: String, context: Context? = null) {
-        _accounts.update { current ->
-            val updated = current.map { if (it.id == id) it.copy(tier = tier) else it }
-            preferences.saveAccounts(updated)
-            updated
+        val updated = _accounts.updateAndGet { current ->
+            current.map { if (it.id == id) it.copy(tier = tier) else it }
         }
-        val target = _accounts.value.find { it.id == id }
+        preferences.saveAccounts(updated)
+
+        val target = updated.find { it.id == id }
         if (target != null && context != null) {
             scope.launch {
                 AlpineAppContainerManager.getInstance(context).updateAccountStatus(id, target.isEnabled, tier)
@@ -166,20 +169,18 @@ class VMRepository(
         val completeVM = initialVM.copy(
             bootstrapScript = AlpineBootstrapGenerator.generateBootstrapScript(initialVM, account?.tokenOrCookie)
         )
-        _vms.update { current ->
-            val updated = current + completeVM
-            preferences.saveVMs(updated)
-            updated
+        val updated = _vms.updateAndGet { current ->
+            current + completeVM
         }
+        preferences.saveVMs(updated)
         return completeVM
     }
 
     fun updateVM(vm: ColabVM) {
-        _vms.update { current ->
-            val updated = current.map { if (it.id == vm.id) vm else it }
-            preferences.saveVMs(updated)
-            updated
+        val updated = _vms.updateAndGet { current ->
+            current.map { if (it.id == vm.id) vm else it }
         }
+        preferences.saveVMs(updated)
     }
 
     fun updateTunnelEndpoint(id: String, rawEndpoint: String) {
@@ -196,11 +197,10 @@ class VMRepository(
     }
 
     fun deleteVM(id: String) {
-        _vms.update { current ->
-            val updated = current.filter { it.id != id }
-            preferences.saveVMs(updated)
-            updated
+        val updated = _vms.updateAndGet { current ->
+            current.filter { it.id != id }
         }
+        preferences.saveVMs(updated)
     }
 
     fun getVMById(id: String): ColabVM? = _vms.value.find { it.id == id }

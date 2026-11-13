@@ -54,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -90,6 +91,12 @@ fun FilesTab(
     val scope = rememberCoroutineScope()
     val fileEngine = remember(vm.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
         FileManagerEngine(context, vm)
+    }
+
+    DisposableEffect(fileEngine) {
+        onDispose {
+            fileEngine.close()
+        }
     }
 
     val currentPath by fileEngine.currentPath.collectAsState()

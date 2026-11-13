@@ -57,6 +57,17 @@ object TelemetryEngine {
             (firstLoad * 20f).coerceIn(0f, 100f)
         }
 
+        val vramTotal = obj.optLong("gpu_vram_total_bytes", 0L)
+        val vramUsed = obj.optLong("gpu_vram_used_bytes", 0L)
+        val rawGpuUsage = obj.optDouble("gpu_usage_percent", -1.0)
+        val gpuUsage = if (rawGpuUsage >= 0.0) {
+            rawGpuUsage.toFloat()
+        } else if (vramTotal > 0L) {
+            ((vramUsed.toDouble() / vramTotal.toDouble()) * 100.0).toFloat().coerceIn(0f, 100f)
+        } else {
+            0f
+        }
+
         return VMMetrics(
             cpuUsagePercent = cpuPct,
             loadAverage = loadStr,
@@ -65,8 +76,9 @@ object TelemetryEngine {
             diskTotalBytes = obj.optLong("disk_total_bytes", 0L),
             diskUsedBytes = obj.optLong("disk_used_bytes", 0L),
             gpuModel = obj.optString("gpu_model").takeIf { it.isNotBlank() && it != "null" },
-            gpuVramTotalBytes = obj.optLong("gpu_vram_total_bytes", 0L),
-            gpuVramUsedBytes = obj.optLong("gpu_vram_used_bytes", 0L),
+            gpuUsagePercent = gpuUsage,
+            gpuVramTotalBytes = vramTotal,
+            gpuVramUsedBytes = vramUsed,
             gpuTemperatureCelsius = obj.optInt("gpu_temperature_celsius", 0),
             uptimeSeconds = obj.optLong("uptime_seconds", 0L)
         )

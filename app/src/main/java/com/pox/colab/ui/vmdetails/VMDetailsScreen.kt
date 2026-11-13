@@ -259,6 +259,9 @@ fun VMDetailsScreen(
                         onConfigureTunnel = { showTunnelDialog = true },
                         onMetricsUpdated = { metrics ->
                             repository.updateMetrics(vm.id, metrics)
+                        },
+                        onStatusChanged = { status ->
+                            repository.updateVM(vm.copy(status = status))
                         }
                     )
                     2 -> FilesTab(

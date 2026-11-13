@@ -260,9 +260,9 @@ fun DashboardTab(
                                 val metrics = TelemetryEngine.fetchHttpMetrics(host)
                                 if (metrics != null) {
                                     repository.updateMetrics(vm.id, metrics)
-                                    Toast.makeText(context, "Telemetry updated", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Telemetry updated via HTTP agent", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    Toast.makeText(context, "Telemetry synchronized", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "HTTP endpoint unreachable (telemetry streamed via active SSH session)", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }

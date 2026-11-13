@@ -212,9 +212,10 @@ def collect_metrics():
     vram_total = 0
     vram_used = 0
     gpu_temp = 0
+    gpu_util = 0.0
     try:
         out = subprocess.check_output(
-            ['nvidia-smi', '--query-gpu=name,memory.total,memory.used,temperature.gpu', '--format=csv,noheader,nounits'],
+            ['nvidia-smi', '--query-gpu=name,memory.total,memory.used,temperature.gpu,utilization.gpu', '--format=csv,noheader,nounits'],
             timeout=2
         ).decode().strip()
         parts = [p.strip() for p in out.split(',')]
@@ -223,6 +224,11 @@ def collect_metrics():
             vram_total = int(parts[1]) * 1024 * 1024
             vram_used = int(parts[2]) * 1024 * 1024
             gpu_temp = int(parts[3])
+            if len(parts) >= 5:
+                try:
+                    gpu_util = float(parts[4])
+                except Exception:
+                    gpu_util = 0.0
     except Exception:
         pass
 
@@ -251,6 +257,7 @@ def collect_metrics():
         "gpu_vram_total_bytes": vram_total,
         "gpu_vram_used_bytes": vram_used,
         "gpu_temperature_celsius": gpu_temp,
+        "gpu_usage_percent": round(gpu_util, 1),
         "uptime_seconds": uptime_sec,
         "timestamp": time.time()
     }
