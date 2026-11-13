@@ -65,7 +65,7 @@ class FileManagerEngine(
             return@withContext existingChannel
         }
 
-        close()
+        disconnectSftp()
 
         val (host, port) = resolveHostAndPort()
         if (host.isBlank()) {
@@ -75,6 +75,13 @@ class FileManagerEngine(
         val session = jsch.getSession(vm.sshConfig.username, host, port)
         if (vm.sshConfig.authMethod == SSHAuthMethod.PASSWORD) {
             session.setPassword(vm.sshConfig.password)
+        } else if (vm.sshConfig.authMethod == SSHAuthMethod.PUBLIC_KEY) {
+            val key = vm.sshConfig.privateKey
+            if (!key.isNullOrBlank()) {
+                try {
+                    jsch.addIdentity("sftp_${vm.id}_key", key.toByteArray(Charsets.UTF_8), null, null)
+                } catch (_: Exception) {}
+            }
         }
         session.setConfig("StrictHostKeyChecking", "no")
         session.setConfig("PreferredAuthentications", "password,publickey,keyboard-interactive")
@@ -264,11 +271,11 @@ class FileManagerEngine(
         _statusNotice.value = null
     }
 
-    fun close() {
-        try {
-            scope.cancel()
-        } catch (_: Exception) {}
-
+    /**
+     * Drops the cached SFTP channel/session so the next operation reconnects, without
+     * cancelling [scope]. Safe to call from inside a coroutine on that scope.
+     */
+    private fun disconnectSftp() {
         try {
             sftpChannel?.disconnect()
         } catch (_: Exception) {}
@@ -278,6 +285,13 @@ class FileManagerEngine(
             sftpSession?.disconnect()
         } catch (_: Exception) {}
         sftpSession = null
+    }
+
+    fun close() {
+        disconnectSftp()
+        try {
+            scope.cancel()
+        } catch (_: Exception) {}
     }
 
     private fun normalizePath(path: String): String {

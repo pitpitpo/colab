@@ -1,5 +1,6 @@
 package com.pox.colab.engine
 
+import android.annotation.SuppressLint
 import android.content.Context
 import com.google.gson.Gson
 import com.pox.colab.model.ColabAccount
@@ -392,6 +393,9 @@ class AlpineAppContainerManager private constructor(private val context: Context
     }
 
     companion object {
+        // Application-scoped by design: getInstance() always stores context.applicationContext,
+        // so this process-wide singleton cannot retain an Activity.
+        @SuppressLint("StaticFieldLeak")
         @Volatile
         private var instance: AlpineAppContainerManager? = null
 

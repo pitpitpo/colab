@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
@@ -49,17 +48,14 @@ class SSHBackgroundService : Service() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Colab Resilient SSH Service",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps persistent SSH & tmux connections active in background"
-            }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Colab Resilient SSH Service",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Keeps persistent SSH & tmux connections active in background"
         }
+        getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
 
     private fun buildNotification(vmName: String): Notification {
@@ -92,11 +88,7 @@ class SSHBackgroundService : Service() {
                 val intent = Intent(context, SSHBackgroundService::class.java).apply {
                     putExtra(EXTRA_VM_NAME, vmName)
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
+                context.startForegroundService(intent)
             } catch (_: Exception) {}
         }
 

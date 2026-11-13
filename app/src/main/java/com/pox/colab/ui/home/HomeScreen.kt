@@ -1,5 +1,6 @@
 package com.pox.colab.ui.home
 
+import android.animation.ValueAnimator
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -65,7 +68,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import com.pox.colab.ui.component.shimmer.GridItemPlaceholder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -77,6 +79,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -85,12 +89,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pox.colab.R
 import com.pox.colab.data.VMRepository
+import com.pox.colab.ui.component.shimmer.GridItemPlaceholder
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.VMStatus
-import com.pox.colab.theme.ColabOrange
-import com.pox.colab.theme.TerminalGreen
-import com.pox.colab.theme.TerminalYellow
+import com.pox.colab.theme.statusSuccessColor
+import com.pox.colab.theme.vmStatusColor
+import com.pox.colab.theme.vmStatusLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -148,7 +153,8 @@ fun HomeScreen(
                         onClick = { accountMenuExpanded = true },
                         shape = RoundedCornerShape(20.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -411,7 +417,7 @@ fun VMGridCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    StatusIndicatorDot(status = vm.status)
+                    StatusIndicatorDot(status = vm.status, showLabel = true)
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(vm.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -464,7 +470,7 @@ fun VMGridCard(
                 AssistChip(
                     onClick = onOpenSSH,
                     label = { Text(vm.sshConfig.resilientProtocol.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                    leadingIcon = { Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(14.dp), tint = TerminalGreen) },
+                    leadingIcon = { Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(14.dp), tint = statusSuccessColor()) },
                     shape = RoundedCornerShape(10.dp),
                     colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                     border = null,
@@ -527,27 +533,53 @@ fun VMGridCard(
 }
 
 @Composable
-fun StatusIndicatorDot(status: VMStatus) {
-    val color = when (status) {
-        VMStatus.RUNNING -> TerminalGreen
-        VMStatus.STARTING -> TerminalYellow
-        VMStatus.RECONNECTING -> MaterialTheme.colorScheme.tertiary
-        VMStatus.STOPPED -> MaterialTheme.colorScheme.outline
-        VMStatus.ERROR -> MaterialTheme.colorScheme.error
+fun StatusIndicatorDot(
+    status: VMStatus,
+    modifier: Modifier = Modifier,
+    showLabel: Boolean = false
+) {
+    val color = vmStatusColor(status)
+    val label = vmStatusLabel(status)
+    val pulses = status == VMStatus.RUNNING || status == VMStatus.RECONNECTING
+
+    // Honour "Remove animations" / animator duration scale 0 for users who disable motion.
+    val animationsEnabled = remember { ValueAnimator.areAnimatorsEnabled() }
+
+    val alpha: Float = if (pulses && animationsEnabled) {
+        val infiniteTransition = rememberInfiniteTransition(label = "vmStatusPulse")
+        val animated by infiniteTransition.animateFloat(
+            initialValue = 0.4f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Reverse),
+            label = "pulseAlpha"
+        )
+        animated
+    } else {
+        1f
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Reverse),
-        label = "pulseAlpha"
-    )
-
-    Box(
-        modifier = Modifier
-            .size(10.dp)
-            .clip(CircleShape)
-            .background(color.copy(alpha = if (status == VMStatus.RUNNING || status == VMStatus.RECONNECTING) alpha else 1f))
-    )
+    Row(
+        modifier = if (showLabel) {
+            modifier
+        } else {
+            modifier.semantics { contentDescription = "Status: $label" }
+        },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = alpha))
+        )
+        if (showLabel) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = color
+            )
+        }
+    }
 }

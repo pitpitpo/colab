@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -44,7 +47,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -71,14 +73,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.sp
 import com.pox.colab.engine.FileManagerEngine
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.RemoteFile
-import com.pox.colab.theme.TerminalForeground
 import kotlinx.coroutines.launch
-
-import androidx.compose.material.icons.filled.Cable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -366,6 +366,7 @@ fun FilesTab(
     selectedFileForPreview?.let { file ->
         AlertDialog(
             onDismissRequest = { selectedFileForPreview = null },
+            properties = DialogProperties(decorFitsSystemWindows = true),
             shape = RoundedCornerShape(28.dp),
             title = {
                 Row(
@@ -448,6 +449,7 @@ fun FilesTab(
         var folderName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showNewFolderDialog = false },
+            properties = DialogProperties(decorFitsSystemWindows = true),
             shape = RoundedCornerShape(28.dp),
             title = { Text("New Directory", fontWeight = FontWeight.Bold) },
             text = {
@@ -457,7 +459,9 @@ fun FilesTab(
                     label = { Text("Directory Name") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .imePadding()
                 )
             },
             confirmButton = {
@@ -492,11 +496,14 @@ fun FilesTab(
         var uploadFileContent by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showUploadDialog = false },
+            properties = DialogProperties(decorFitsSystemWindows = true),
             shape = RoundedCornerShape(28.dp),
             title = { Text("Create / Upload File", fontWeight = FontWeight.Bold) },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .imePadding(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(
@@ -554,6 +561,7 @@ fun FilesTab(
         var newName by remember { mutableStateOf(file.name) }
         AlertDialog(
             onDismissRequest = { fileToRename = null },
+            properties = DialogProperties(decorFitsSystemWindows = true),
             shape = RoundedCornerShape(28.dp),
             title = { Text("Rename", fontWeight = FontWeight.Bold) },
             text = {
@@ -563,7 +571,9 @@ fun FilesTab(
                     label = { Text("Name") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .imePadding()
                 )
             },
             confirmButton = {
@@ -616,7 +626,13 @@ fun FileListItem(
         },
         supportingContent = {
             Text(
-                text = if (file.isDirectory) "Directory" else file.formattedSize(),
+                text = buildString {
+                    append(if (file.isDirectory) "Directory" else file.formattedSize())
+                    if (file.modifiedTime.isNotBlank()) {
+                        append(" • ")
+                        append(file.modifiedTime)
+                    }
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

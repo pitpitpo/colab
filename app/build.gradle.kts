@@ -39,6 +39,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
@@ -46,6 +47,11 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
         }
     }
 }
@@ -74,6 +80,9 @@ dependencies {
     implementation("com.jcraft:jsch:0.1.55")
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM unit tests: the mockable android.jar stubs every method, which
+    // silently disabled telemetry/token parsing coverage.
+    testImplementation("org.json:json:20231013")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

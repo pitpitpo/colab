@@ -1,5 +1,6 @@
 package com.pox.colab.ui.vmdetails
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -39,28 +39,27 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -70,15 +69,20 @@ import androidx.compose.ui.unit.sp
 import com.pox.colab.data.AppPreferences
 import com.pox.colab.engine.ResilientSSHManager
 import com.pox.colab.engine.SSHConnectionState
-import com.pox.colab.service.SSHBackgroundService
 import com.pox.colab.model.ColabVM
+import com.pox.colab.model.VMStatus
 import com.pox.colab.model.VMMetrics
 import com.pox.colab.theme.TerminalCyan
 import com.pox.colab.theme.TerminalForeground
-import com.pox.colab.theme.TerminalGreen
 import com.pox.colab.theme.TerminalRed
 import com.pox.colab.theme.TerminalYellow
 import com.pox.colab.theme.resolveConsoleBackground
+import com.pox.colab.theme.statusErrorColor
+import com.pox.colab.theme.statusNeutralColor
+import com.pox.colab.theme.statusSuccessColor
+import com.pox.colab.theme.statusWarningColor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.collect
 
 data class ConsoleTabSession(
     val id: String,
@@ -86,47 +90,99 @@ data class ConsoleTabSession(
     val manager: ResilientSSHManager
 )
 
+/**
+ * Retains multi-tab SSH sessions above the [androidx.compose.foundation.pager.HorizontalPager]
+ * so that [VMDetailsScreen]'s `beyondBoundsPageCount = 0` policy (no eager off-screen
+ * connections) does not tear down a live console every time the user peeks at another tab.
+ */
+class ConsoleSessionHolder(
+    private val vm: ColabVM,
+    private val scope: CoroutineScope,
+    private val onMetricsUpdated: ((VMMetrics) -> Unit)? = null,
+    private val onStatusChanged: ((VMStatus) -> Unit)? = null
+) {
+    val sessions = mutableStateListOf<ConsoleTabSession>()
+
+    var activeSessionId by mutableStateOf("")
+        private set
+
+    private var sessionCounter = 0
+
+    init {
+        addSession(connect = false)
+    }
+
+    val activeSession: ConsoleTabSession?
+        get() = sessions.firstOrNull { it.id == activeSessionId } ?: sessions.firstOrNull()
+
+    fun addSession(connect: Boolean = true): ConsoleTabSession {
+        sessionCounter += 1
+        val id = "session_$sessionCounter"
+        val session = ConsoleTabSession(
+            id = id,
+            title = "Session $sessionCounter",
+            manager = ResilientSSHManager(
+                vm = vm,
+                scope = scope,
+                onMetricsUpdated = onMetricsUpdated,
+                onConnectionStateChanged = { state -> onStatusChanged?.invoke(state.toVmStatus()) },
+                tmuxSessionOverride = if (sessionCounter == 1) {
+                    vm.sshConfig.tmuxSessionName
+                } else {
+                    "${vm.sshConfig.tmuxSessionName}_$sessionCounter"
+                }
+            )
+        )
+        sessions.add(session)
+        activeSessionId = id
+        if (connect) session.manager.connect()
+        return session
+    }
+
+    fun select(id: String) {
+        activeSessionId = id
+    }
+
+    fun connectIfNeeded() {
+        val session = activeSession ?: return
+        if (session.manager.connectionState.value == SSHConnectionState.DISCONNECTED) {
+            session.manager.connect()
+        }
+    }
+
+    fun closeSession(session: ConsoleTabSession) {
+        session.manager.disconnect()
+        val index = sessions.indexOf(session)
+        sessions.remove(session)
+        if (activeSessionId == session.id) {
+            activeSessionId = sessions.getOrNull(index.coerceAtMost(sessions.lastIndex))?.id ?: ""
+        }
+    }
+
+    fun close() {
+        sessions.forEach { it.manager.disconnect() }
+        sessions.clear()
+    }
+}
+
+private fun SSHConnectionState.toVmStatus(): VMStatus = when (this) {
+    SSHConnectionState.CONNECTED -> VMStatus.RUNNING
+    SSHConnectionState.CONNECTING -> VMStatus.STARTING
+    SSHConnectionState.RECONNECTING -> VMStatus.RECONNECTING
+    SSHConnectionState.ERROR -> VMStatus.ERROR
+    SSHConnectionState.DISCONNECTED -> VMStatus.STOPPED
+}
+
 @Composable
 fun SSHTab(
     vm: ColabVM,
     preferences: AppPreferences,
-    onConfigureTunnel: () -> Unit,
-    onMetricsUpdated: ((VMMetrics) -> Unit)? = null,
-    onStatusChanged: ((VMStatus) -> Unit)? = null
+    sessionHolder: ConsoleSessionHolder,
+    onConfigureTunnel: () -> Unit
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var sessionCounter by remember { mutableIntStateOf(1) }
-
-    // Multi-tab session state
-    val sessions = remember(vm.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
-        mutableStateListOf<ConsoleTabSession>().apply {
-            add(
-                ConsoleTabSession(
-                    id = "session_1",
-                    title = "Session 1",
-                    manager = ResilientSSHManager(
-                        vm = vm,
-                        scope = scope,
-                        onMetricsUpdated = onMetricsUpdated,
-                        onConnectionStateChanged = { state ->
-                            when (state) {
-                                SSHConnectionState.CONNECTED -> onStatusChanged?.invoke(VMStatus.RUNNING)
-                                SSHConnectionState.CONNECTING -> onStatusChanged?.invoke(VMStatus.STARTING)
-                                SSHConnectionState.RECONNECTING -> onStatusChanged?.invoke(VMStatus.RECONNECTING)
-                                SSHConnectionState.ERROR -> onStatusChanged?.invoke(VMStatus.ERROR)
-                                SSHConnectionState.DISCONNECTED -> onStatusChanged?.invoke(VMStatus.STOPPED)
-                            }
-                        },
-                        tmuxSessionOverride = vm.sshConfig.tmuxSessionName
-                    )
-                )
-            )
-        }
-    }
-
-    var activeSessionId by remember { mutableStateOf(sessions.firstOrNull()?.id ?: "") }
-    val currentSession = sessions.find { it.id == activeSessionId } ?: sessions.firstOrNull()
+    val sessions = sessionHolder.sessions
+    val activeSessionId = sessionHolder.activeSessionId
+    val currentSession = sessionHolder.activeSession
 
     // Retrieve active terminal background color with per-terminal support
     var termBgKey by remember(vm.id, activeSessionId) {
@@ -135,21 +191,9 @@ fun SSHTab(
     val consoleBgColor = resolveConsoleBackground(termBgKey)
     var showBgMenu by remember { mutableStateOf(false) }
 
-    // Handle auto-connection for initial session and endpoint updates
+    // Handle auto-connection for the initial session and endpoint updates
     LaunchedEffect(currentSession?.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
-        currentSession?.let { s ->
-            if (s.manager.connectionState.value == SSHConnectionState.DISCONNECTED) {
-                s.manager.connect()
-            }
-        }
-    }
-
-    DisposableEffect(vm.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
-        SSHBackgroundService.start(context, vm.name)
-        onDispose {
-            sessions.forEach { it.manager.disconnect() }
-            SSHBackgroundService.stop(context)
-        }
+        sessionHolder.connectIfNeeded()
     }
 
     Column(
@@ -181,19 +225,19 @@ fun SSHTab(
                         val sessionState by session.manager.connectionState.collectAsState()
 
                         val tabStateColor = when (sessionState) {
-                            SSHConnectionState.CONNECTED -> TerminalGreen
-                            SSHConnectionState.CONNECTING, SSHConnectionState.RECONNECTING -> TerminalYellow
-                            SSHConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.outline
-                            SSHConnectionState.ERROR -> MaterialTheme.colorScheme.error
+                            SSHConnectionState.CONNECTED -> statusSuccessColor()
+                            SSHConnectionState.CONNECTING, SSHConnectionState.RECONNECTING -> statusWarningColor()
+                            SSHConnectionState.DISCONNECTED -> statusNeutralColor()
+                            SSHConnectionState.ERROR -> statusErrorColor()
                         }
 
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
-                            border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)) else null,
+                            border = if (isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)) else null,
                             modifier = Modifier
-                                .defaultMinSize(minHeight = 48.dp)
-                                .clickable(role = Role.Tab) { activeSessionId = session.id }
+                                .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                .clickable(role = Role.Tab) { sessionHolder.select(session.id) }
                         ) {
                             Row(
                                 modifier = Modifier.padding(start = 12.dp, end = if (sessions.size > 1) 4.dp else 12.dp, top = 4.dp, bottom = 4.dp),
@@ -234,12 +278,7 @@ fun SSHTab(
                                             .size(48.dp)
                                             .clip(CircleShape)
                                             .clickable(role = Role.Button) {
-                                                session.manager.disconnect()
-                                                val idx = sessions.indexOf(session)
-                                                sessions.remove(session)
-                                                if (activeSessionId == session.id) {
-                                                    activeSessionId = sessions.getOrNull(idx.coerceAtMost(sessions.lastIndex))?.id ?: ""
-                                                }
+                                                sessionHolder.closeSession(session)
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -258,33 +297,7 @@ fun SSHTab(
 
                 // Add New Terminal Tab (+) Button
                 IconButton(
-                    onClick = {
-                        sessionCounter++
-                        val newId = "session_$sessionCounter"
-                        val newTitle = "Session $sessionCounter"
-                        val newSession = ConsoleTabSession(
-                            id = newId,
-                            title = newTitle,
-                            manager = ResilientSSHManager(
-                                vm = vm,
-                                scope = scope,
-                                onMetricsUpdated = onMetricsUpdated,
-                                onConnectionStateChanged = { state ->
-                                    when (state) {
-                                        SSHConnectionState.CONNECTED -> onStatusChanged?.invoke(VMStatus.RUNNING)
-                                        SSHConnectionState.CONNECTING -> onStatusChanged?.invoke(VMStatus.STARTING)
-                                        SSHConnectionState.RECONNECTING -> onStatusChanged?.invoke(VMStatus.RECONNECTING)
-                                        SSHConnectionState.ERROR -> onStatusChanged?.invoke(VMStatus.ERROR)
-                                        SSHConnectionState.DISCONNECTED -> onStatusChanged?.invoke(VMStatus.STOPPED)
-                                    }
-                                },
-                                tmuxSessionOverride = "${vm.sshConfig.tmuxSessionName}_$sessionCounter"
-                            )
-                        )
-                        sessions.add(newSession)
-                        activeSessionId = newId
-                        newSession.manager.connect()
-                    },
+                    onClick = { sessionHolder.addSession() },
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
@@ -376,12 +389,24 @@ private fun ActiveSessionTerminalView(
     var isAltActive by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(terminalLines.size) {
-        if (terminalLines.isNotEmpty() && !listState.isScrollInProgress) {
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            if (lastVisible >= terminalLines.size - 3) {
-                listState.scrollToItem(terminalLines.lastIndex)
+    // Auto-scroll only while the transcript is already pinned to the newest line. The flag is
+    // re-evaluated when a user-initiated scroll settles, so reading scrollback is never hijacked.
+    var autoScrollToLatest by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        var wasScrolling = false
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (wasScrolling && !scrolling) {
+                val info = listState.layoutInfo
+                val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                autoScrollToLatest = lastVisible >= info.totalItemsCount - 1
             }
+            wasScrolling = scrolling
+        }
+    }
+
+    LaunchedEffect(terminalLines.size) {
+        if (autoScrollToLatest && !listState.isScrollInProgress && terminalLines.isNotEmpty()) {
+            listState.scrollToItem(terminalLines.lastIndex)
         }
     }
 
@@ -400,10 +425,10 @@ private fun ActiveSessionTerminalView(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val indicatorColor = when (connectionState) {
-                        SSHConnectionState.CONNECTED -> TerminalGreen
-                        SSHConnectionState.CONNECTING, SSHConnectionState.RECONNECTING -> TerminalYellow
-                        SSHConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.outline
-                        SSHConnectionState.ERROR -> MaterialTheme.colorScheme.error
+                        SSHConnectionState.CONNECTED -> statusSuccessColor()
+                        SSHConnectionState.CONNECTING, SSHConnectionState.RECONNECTING -> statusWarningColor()
+                        SSHConnectionState.DISCONNECTED -> statusNeutralColor()
+                        SSHConnectionState.ERROR -> statusErrorColor()
                     }
                     Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(indicatorColor))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -488,134 +513,41 @@ private fun ActiveSessionTerminalView(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // ESC
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                    .clickable(role = Role.Button) { manager.sendCommand("\u001b") }
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("ESC", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                }
-            }
+            TerminalAccessoryKey("ESC", "Escape", onClick = { manager.sendCommand("\u001b") })
+            TerminalAccessoryKey("TAB", "Tab", onClick = { manager.sendCommand("\t") })
 
-            // TAB
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                    .clickable(role = Role.Button) { manager.sendCommand("\t") }
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("TAB", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                }
-            }
+            TerminalAccessoryKey(
+                label = "CTRL",
+                description = "Control modifier",
+                active = isCtrlActive,
+                onClick = { isCtrlActive = !isCtrlActive }
+            )
+            TerminalAccessoryKey(
+                label = "ALT",
+                description = "Alt modifier",
+                active = isAltActive,
+                activeContainer = MaterialTheme.colorScheme.tertiary,
+                activeContent = MaterialTheme.colorScheme.onTertiary,
+                onClick = { isAltActive = !isAltActive }
+            )
 
-            // CTRL Modifier Toggle
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = if (isCtrlActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                    .clickable(role = Role.Button) { isCtrlActive = !isCtrlActive }
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("CTRL", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isCtrlActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
-                }
-            }
+            TerminalAccessoryKey("↑", "Arrow up", onClick = { manager.sendCommand("\u001b[A") })
+            TerminalAccessoryKey("↓", "Arrow down", onClick = { manager.sendCommand("\u001b[B") })
+            TerminalAccessoryKey("←", "Arrow left", onClick = { manager.sendCommand("\u001b[D") })
+            TerminalAccessoryKey("→", "Arrow right", onClick = { manager.sendCommand("\u001b[C") })
 
-            // ALT Modifier Toggle
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = if (isAltActive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                    .clickable(role = Role.Button) { isAltActive = !isAltActive }
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("ALT", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isAltActive) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurface)
-                }
-            }
-
-            // Arrow Keys: Up, Down, Left, Right
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                    .clickable(role = Role.Button) { manager.sendCommand("\u001b[A") }
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("↑", fontFamily = FontFamily.Monospace, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                }
-            }
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                    .clickable(role = Role.Button) { manager.sendCommand("\u001b[B") }
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("↓", fontFamily = FontFamily.Monospace, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                }
-            }
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                    .clickable(role = Role.Button) { manager.sendCommand("\u001b[D") }
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("←", fontFamily = FontFamily.Monospace, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                }
-            }
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                    .clickable(role = Role.Button) { manager.sendCommand("\u001b[C") }
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("→", fontFamily = FontFamily.Monospace, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                }
-            }
-
-            // Control Combos & Macros
-            listOf("Ctrl+C" to "\u0003", "Ctrl+D" to "\u0004", "Ctrl+Z" to "\u001a", "Clear" to "CLEAR").forEach { (label, code) ->
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier
-                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                        .clickable(role = Role.Button) {
-                            if (code == "CLEAR") manager.clearOutput()
-                            else manager.sendCommand(code)
-                        }
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                        Text(label, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                }
-            }
+            TerminalAccessoryKey("Ctrl+C", "Send interrupt (Ctrl+C)", onClick = { manager.sendCommand("\u0003") })
+            TerminalAccessoryKey("Ctrl+D", "Send end of file (Ctrl+D)", onClick = { manager.sendCommand("\u0004") })
+            TerminalAccessoryKey("Ctrl+Z", "Send suspend (Ctrl+Z)", onClick = { manager.sendCommand("\u001a") })
+            TerminalAccessoryKey("Clear", "Clear terminal buffer", onClick = { manager.clearOutput() })
 
             listOf("ls -la", "htop", "tmux ls").forEach { cmd ->
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier
-                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                        .clickable(role = Role.Button) { manager.sendCommand("$cmd\n") }
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                        Text(cmd, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+                TerminalAccessoryKey(
+                    label = cmd,
+                    description = "Run $cmd",
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = { manager.sendCommand("$cmd\n") }
+                )
             }
         }
 
@@ -699,6 +631,45 @@ private fun ActiveSessionTerminalView(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Single accessory key: guaranteed 48dp minimum touch target, exposed to accessibility
+ * services as a button with a human readable description.
+ */
+@Composable
+private fun TerminalAccessoryKey(
+    label: String,
+    description: String,
+    active: Boolean = false,
+    activeContainer: Color = MaterialTheme.colorScheme.primary,
+    activeContent: Color = MaterialTheme.colorScheme.onPrimary,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (active) activeContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .semantics { contentDescription = description }
+            .clickable(role = Role.Button, onClick = onClick)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+            Text(
+                text = label,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (active) activeContent else contentColor
+            )
         }
     }
 }

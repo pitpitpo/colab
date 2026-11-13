@@ -111,16 +111,18 @@ object AlpineBootstrapGenerator {
                 echo 'ClientAliveInterval 10' >> /etc/ssh/sshd_config
                 echo 'ClientAliveCountMax 9999' >> /etc/ssh/sshd_config
                 echo 'TCPKeepAlive yes' >> /etc/ssh/sshd_config
+            "
 
-                # Create Colab CLI tool inside Alpine linking to official colab CLI
-                cat << 'CLICONTENT' > /usr/local/bin/colab-cli
+            # Create Colab CLI tool inside Alpine linking to official colab CLI
+            mkdir -p /content/alpine_rootfs/usr/local/bin /content/alpine_rootfs/usr/bin
+            cat << 'CLICONTENT' > /content/alpine_rootfs/usr/local/bin/colab-cli
 #!/bin/sh
 # Colab CLI wrapper: delegates directly to official Google Colab CLI tool
 if command -v colab >/dev/null 2>&1; then
     case "${'$'}1" in
         status)
             echo '=== Colab Alpine Runtime ==='
-            echo 'Uptime: '\$(uptime)
+            echo "Uptime: $(uptime)"
             echo 'Disk:'
             df -h /
             echo 'Memory:'
@@ -141,7 +143,7 @@ else
     case "${'$'}1" in
         status)
             echo '=== Colab Alpine Runtime ==='
-            echo 'Uptime: '\$(uptime)
+            echo "Uptime: $(uptime)"
             df -h /
             free -m
             ;;
@@ -154,9 +156,8 @@ else
     esac
 fi
 CLICONTENT
-                chmod +x /usr/local/bin/colab-cli
-                ln -sf /usr/local/bin/colab-cli /usr/bin/colab-cli 2>/dev/null || true
-            "
+            chmod +x /content/alpine_rootfs/usr/local/bin/colab-cli
+            ln -sf /usr/local/bin/colab-cli /content/alpine_rootfs/usr/bin/colab-cli 2>/dev/null || true
 
             $authSetup
 

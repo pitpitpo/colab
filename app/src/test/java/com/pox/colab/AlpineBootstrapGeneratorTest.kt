@@ -16,10 +16,13 @@ class AlpineBootstrapGeneratorTest {
     fun generateBootstrapScript_containsEssentialComponents() {
         val vm = ColabVM(
             name = "Test-GPU-VM",
+            accountId = "test-account",
             hardwareAccelerator = HardwareAccelerator.T4,
             tunnelProvider = TunnelProvider.BORE,
-            resilientProtocol = ResilientProtocol.TMUX_SSH,
-            sshConfig = SSHSessionConfig(password = "secret-pass-123")
+            sshConfig = SSHSessionConfig(
+                password = "secret-pass-123",
+                resilientProtocol = ResilientProtocol.TMUX_SSH
+            )
         )
 
         val script = AlpineBootstrapGenerator.generateBootstrapScript(
@@ -54,9 +57,10 @@ class AlpineBootstrapGeneratorTest {
         val jsonTokenBlob = """{"token":"ya29.extracted_token_from_json","expiry":"2026-12-01T12:00:00Z"}"""
         val vm = ColabVM(
             name = "Test-VM",
+            accountId = "test-account",
             hardwareAccelerator = HardwareAccelerator.NONE,
             tunnelProvider = TunnelProvider.CLOUDFLARE,
-            resilientProtocol = ResilientProtocol.TMUX_SSH
+            sshConfig = SSHSessionConfig(resilientProtocol = ResilientProtocol.TMUX_SSH)
         )
 
         val script = AlpineBootstrapGenerator.generateBootstrapScript(vm, jsonTokenBlob)

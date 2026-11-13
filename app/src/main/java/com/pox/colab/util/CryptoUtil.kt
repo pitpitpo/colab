@@ -1,7 +1,7 @@
 package com.pox.colab.util
 
-import android.util.Base64
 import java.security.MessageDigest
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -33,7 +33,7 @@ object CryptoUtil {
         System.arraycopy(iv, 0, combined, 0, iv.size)
         System.arraycopy(ciphertext, 0, combined, iv.size, ciphertext.size)
 
-        return ENCRYPTION_PREFIX + Base64.encodeToString(combined, Base64.NO_WRAP)
+        return ENCRYPTION_PREFIX + Base64.getEncoder().encodeToString(combined)
     }
 
     /**
@@ -45,7 +45,7 @@ object CryptoUtil {
         }
         return try {
             val b64 = encryptedText.removePrefix(ENCRYPTION_PREFIX)
-            val combined = Base64.decode(b64, Base64.NO_WRAP)
+            val combined = Base64.getDecoder().decode(b64)
             if (combined.size < IV_LENGTH_BYTES) return encryptedText
 
             val iv = ByteArray(IV_LENGTH_BYTES)

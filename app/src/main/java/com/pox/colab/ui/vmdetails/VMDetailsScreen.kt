@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cable
@@ -34,14 +32,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,7 +51,9 @@ import androidx.compose.ui.unit.sp
 import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
 import com.pox.colab.model.VMStatus
+import com.pox.colab.service.SSHBackgroundService
 import com.pox.colab.ui.home.StatusIndicatorDot
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +64,7 @@ fun VMDetailsScreen(
     preferences: AppPreferences,
     onNavigateBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val vms by repository.vms.collectAsState()
     val vm = vms.find { it.id == vmId }
 
@@ -96,6 +101,10 @@ fun VMDetailsScreen(
         return
     }
 
+    val hasEndpoint = remember(vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
+        (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost") || !vm.tunnelUrl.isNullOrBlank()
+    }
+
     if (showTunnelDialog) {
         ConfigureTunnelDialog(
             vm = vm,
@@ -104,6 +113,30 @@ fun VMDetailsScreen(
                 repository.updateTunnelEndpoint(vm.id, newEndpoint)
             }
         )
+    }
+
+    // Hoisted above the pager so the console survives tab switches while the pager itself
+    // keeps beyondBoundsPageCount = 0 (no eager connections on off-screen pages).
+    val consoleScope = rememberCoroutineScope()
+    val sessionHolder = remember(vm.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
+        ConsoleSessionHolder(
+            vm = vm,
+            scope = consoleScope,
+            onMetricsUpdated = { metrics -> repository.updateMetrics(vm.id, metrics) },
+            onStatusChanged = { status ->
+                repository.vms.value.find { it.id == vm.id }?.let { current ->
+                    repository.updateVM(current.copy(status = status))
+                }
+            }
+        )
+    }
+
+    DisposableEffect(sessionHolder) {
+        SSHBackgroundService.start(context, vm.name)
+        onDispose {
+            sessionHolder.close()
+            SSHBackgroundService.stop(context)
+        }
     }
 
     Scaffold(
@@ -125,9 +158,8 @@ fun VMDetailsScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            val hasHost = vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" || !vm.tunnelUrl.isNullOrBlank()
                             Text(
-                                text = if (hasHost) "${vm.sshConfig.host}:${vm.sshConfig.port} • ${vm.sshConfig.resilientProtocol.label}"
+                                text = if (hasEndpoint) "${vm.sshConfig.host}:${vm.sshConfig.port} • ${vm.sshConfig.resilientProtocol.label}"
                                        else "Unconfigured Tunnel • ${vm.hardwareAccelerator.label}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -144,11 +176,10 @@ fun VMDetailsScreen(
                 },
                 actions = {
                     IconButton(onClick = { showTunnelDialog = true }) {
-                        val hasHost = vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" || !vm.tunnelUrl.isNullOrBlank()
                         Icon(
                             imageVector = Icons.Default.Cable,
                             contentDescription = "Configure Tunnel Endpoint",
-                            tint = if (hasHost) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (hasEndpoint) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -184,7 +215,7 @@ fun VMDetailsScreen(
             val pagerScope = rememberCoroutineScope()
             val pagerState = rememberPagerState(initialPage = initialTab.coerceIn(0, 2), pageCount = { 3 })
 
-            androidx.compose.runtime.LaunchedEffect(pagerState.currentPage) {
+            LaunchedEffect(pagerState.currentPage) {
                 selectedTabIndex = pagerState.currentPage
             }
 
@@ -255,13 +286,8 @@ fun VMDetailsScreen(
                     1 -> SSHTab(
                         vm = vm,
                         preferences = preferences,
-                        onConfigureTunnel = { showTunnelDialog = true },
-                        onMetricsUpdated = { metrics ->
-                            repository.updateMetrics(vm.id, metrics)
-                        },
-                        onStatusChanged = { status ->
-                            repository.updateVM(vm.copy(status = status))
-                        }
+                        sessionHolder = sessionHolder,
+                        onConfigureTunnel = { showTunnelDialog = true }
                     )
                     2 -> FilesTab(
                         vm = vm,

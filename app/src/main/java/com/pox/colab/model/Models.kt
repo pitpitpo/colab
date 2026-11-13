@@ -58,7 +58,8 @@ data class VMMetrics(
     val gpuModel: String? = null,
     val gpuTemperatureCelsius: Int = 0,
     val uptimeSeconds: Long = 0L,
-    val loadAverage: String = "0.00, 0.00, 0.00"
+    val loadAverage: String = "0.00, 0.00, 0.00",
+    val timestamp: Long = 0L
 ) {
     val ramUsagePercent: Float
         get() = if (ramTotalBytes > 0) (ramUsedBytes.toFloat() / ramTotalBytes.toFloat()) * 100f else 0f

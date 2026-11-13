@@ -5,9 +5,11 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cable
@@ -35,8 +38,6 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -46,7 +47,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -66,9 +66,8 @@ import com.pox.colab.data.VMRepository
 import com.pox.colab.engine.TelemetryEngine
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.VMStatus
-import com.pox.colab.theme.ColabOrange
-import com.pox.colab.theme.TerminalGreen
-import com.pox.colab.theme.TerminalYellow
+import com.pox.colab.theme.statusSuccessColor
+import com.pox.colab.theme.statusWarningColor
 import com.pox.colab.ui.home.StatusIndicatorDot
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -134,7 +133,7 @@ fun DashboardTab(
                                 text = vm.status.name,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (vm.status == VMStatus.RUNNING) TerminalGreen else MaterialTheme.colorScheme.onSurface
+                                color = if (vm.status == VMStatus.RUNNING) statusSuccessColor() else MaterialTheme.colorScheme.onSurface
                             )
                         }
 
@@ -208,32 +207,23 @@ fun DashboardTab(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Chips metadata row
+                    // Non-interactive metadata badges (48dp tall, scrollable so large font
+                    // scales never clip; previously clickable chips with empty onClick).
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        AssistChip(
-                            onClick = {},
-                            label = { Text("Provider: ${vm.tunnelProvider.label}", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Router, contentDescription = null, modifier = Modifier.size(14.dp))
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
-                            border = null,
-                            modifier = Modifier.height(30.dp)
+                        MetadataBadge(
+                            icon = Icons.Default.Router,
+                            text = "Provider: ${vm.tunnelProvider.label}",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(vm.sshConfig.resilientProtocol.label, fontSize = 11.sp, fontWeight = FontWeight.Medium) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(14.dp), tint = TerminalGreen)
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
-                            border = null,
-                            modifier = Modifier.height(30.dp)
+                        MetadataBadge(
+                            icon = Icons.Default.Security,
+                            text = vm.sshConfig.resilientProtocol.label,
+                            tint = statusSuccessColor()
                         )
                     }
                 }
@@ -320,10 +310,10 @@ fun DashboardTab(
                 TelemetryGaugeCard(
                     title = "GPU",
                     icon = Icons.Default.DeveloperBoard,
-                    iconTint = TerminalGreen,
+                    iconTint = statusSuccessColor(),
                     valueText = if (vm.status == VMStatus.RUNNING) (vm.metrics.gpuModel ?: "No GPU") else "--",
                     progress = if (vm.status == VMStatus.RUNNING) vm.metrics.gpuUsagePercent / 100f else 0f,
-                    progressColor = TerminalGreen,
+                    progressColor = statusSuccessColor(),
                     subtitleText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedGpuVram() else "Offline",
                     extraTag = if (vm.status == VMStatus.RUNNING && vm.metrics.gpuTemperatureCelsius > 0) "${vm.metrics.gpuTemperatureCelsius}°C" else null,
                     modifier = Modifier.weight(1f)
@@ -453,8 +443,8 @@ fun TelemetryGaugeCard(
     progress: Float,
     progressColor: androidx.compose.ui.graphics.Color,
     subtitleText: String,
-    extraTag: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    extraTag: String? = null
 ) {
     OutlinedCard(
         modifier = modifier,
@@ -494,10 +484,10 @@ fun TelemetryGaugeCard(
                             imageVector = Icons.Default.Thermostat,
                             contentDescription = null,
                             modifier = Modifier.size(12.dp),
-                            tint = TerminalYellow
+                            tint = statusWarningColor()
                         )
                         Spacer(modifier = Modifier.width(2.dp))
-                        Text(tag, style = MaterialTheme.typography.labelSmall, color = TerminalYellow, fontWeight = FontWeight.Medium)
+                        Text(tag, style = MaterialTheme.typography.labelSmall, color = statusWarningColor(), fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -541,4 +531,31 @@ private fun formatUptime(seconds: Long): String {
     val hrs = seconds / 3600
     val mins = (seconds % 3600) / 60
     return if (hrs > 0) "${hrs}h ${mins}m" else "${mins}m"
+}
+
+@Composable
+private fun MetadataBadge(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    tint: androidx.compose.ui.graphics.Color
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = tint
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        }
+    }
 }

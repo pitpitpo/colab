@@ -2,27 +2,21 @@ package com.pox.colab.ui.home
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Cable
-import androidx.compose.material.icons.filled.DeveloperBoard
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -32,8 +26,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
@@ -41,7 +33,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,13 +41,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.HardwareAccelerator
 import com.pox.colab.model.ResilientProtocol
@@ -82,8 +72,8 @@ fun AddVMDialog(
     // Mode selection: 0 = Easy Mode (instant auto-generate), 1 = Advanced Mode (customizable, auto-fills if empty)
     var selectedMode by remember { mutableIntStateOf(0) }
 
-    val generatedSuffix = remember { UUID.randomUUID().toString().take(4) }
-    val defaultName = remember { "colab-alpine-$generatedSuffix" }
+    val generatedSuffix = remember { UUID.randomUUID().toString().replace("-", "").take(12) }
+    val defaultName = remember { "colab-alpine-${generatedSuffix.take(6)}" }
     val defaultPassword = remember { "colab-$generatedSuffix-root" }
 
     var vmName by remember { mutableStateOf("") }
@@ -102,6 +92,7 @@ fun AddVMDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(decorFitsSystemWindows = true),
         title = {
             Column {
                 Text(
@@ -120,6 +111,7 @@ fun AddVMDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .imePadding()
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -166,6 +158,10 @@ fun AddVMDialog(
                                 Text("Hardware: NVIDIA T4 Tensor Core", fontSize = 12.sp)
                                 Text("Tunnel: Cloudflare Quick Tunnel", fontSize = 12.sp)
                                 Text("Shell: tmux Anti-Disconnect SSH", fontSize = 12.sp)
+                                Text(
+                                    text = "Account: ${accounts.find { it.id == selectedAccountId }?.displayName ?: "Standalone (no linked account)"}",
+                                    fontSize = 12.sp
+                                )
                             }
                         }
                     } else {
@@ -234,7 +230,12 @@ fun AddVMDialog(
 
                             // Hardware Accelerator selector chips
                             Text("Hardware Accelerator", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 listOf(HardwareAccelerator.NONE, HardwareAccelerator.T4, HardwareAccelerator.V100, HardwareAccelerator.A100).forEach { acc ->
                                     FilterChip(
                                         selected = selectedAccelerator == acc,
@@ -246,7 +247,12 @@ fun AddVMDialog(
 
                             // Resilience Protocol selector chips
                             Text("Shell Resilience Protocol", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 listOf(ResilientProtocol.TMUX_SSH, ResilientProtocol.MOSH_UDP).forEach { proto ->
                                     FilterChip(
                                         selected = selectedProtocol == proto,
@@ -258,7 +264,12 @@ fun AddVMDialog(
 
                             // Tunnel Provider selector chips
                             Text("Tunnel Provider", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 listOf(TunnelProvider.CLOUDFLARE, TunnelProvider.BORE, TunnelProvider.NGROK).forEach { tun ->
                                     FilterChip(
                                         selected = selectedTunnelProvider == tun,
@@ -296,7 +307,7 @@ fun AddVMDialog(
                         if (selectedMode == 0) TunnelProvider.CLOUDFLARE else selectedTunnelProvider,
                         if (selectedMode == 0) ResilientProtocol.TMUX_SSH else selectedProtocol,
                         finalPassword,
-                        tunnelEndpoint.trim()
+                        if (selectedMode == 0) "" else tunnelEndpoint.trim()
                     )
                 },
                 shape = RoundedCornerShape(12.dp),

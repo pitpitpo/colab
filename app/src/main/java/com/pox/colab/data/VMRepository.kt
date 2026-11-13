@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 
 class VMRepository(
@@ -229,7 +230,7 @@ class VMRepository(
         _vms.update { current ->
             current.map {
                 if (it.id == vmId) {
-                    val derivedStatus = if (metrics.timestamp > 0L && it.status != VMStatus.TERMINATED) VMStatus.RUNNING else it.status
+                    val derivedStatus = if (metrics.timestamp > 0L && it.status != VMStatus.ERROR) VMStatus.RUNNING else it.status
                     it.copy(metrics = metrics, status = derivedStatus)
                 } else it
             }

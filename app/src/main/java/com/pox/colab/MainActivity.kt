@@ -1,8 +1,15 @@
 package com.pox.colab
 
+import android.app.Activity
+import android.graphics.Color as AndroidColor
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -16,8 +23,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -31,17 +41,35 @@ import com.pox.colab.ui.home.HomeScreen
 import com.pox.colab.ui.navigation.Screen
 import com.pox.colab.ui.settings.SettingsScreen
 import com.pox.colab.ui.vmdetails.VMDetailsScreen
-
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.runtime.collectAsState
+import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         val app = application as ColabApp
+
+        // System bar icon appearance must follow the *app* theme preference, not the system
+        // night mode, otherwise forced light/dark themes render invisible status bar icons.
+        val initialDark = app.preferences.isDarkMode()
+        val initialBackground = if (initialDark) {
+            if (app.preferences.isPureBlack()) AndroidColor.BLACK else 0xFF0F0F0F.toInt()
+        } else {
+            AndroidColor.WHITE
+        }
+        enableEdgeToEdge(
+            statusBarStyle = if (initialDark) {
+                SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+            } else {
+                SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+            },
+            navigationBarStyle = if (initialDark) {
+                SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+            } else {
+                SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+            }
+        )
+        // No first-frame flash in the opposite theme while Compose composes.
+        window.setBackgroundDrawable(ColorDrawable(initialBackground))
 
         setContent {
             val isDynamic by app.preferences.isDynamicColorFlow.collectAsState()
@@ -55,6 +83,15 @@ class MainActivity : ComponentActivity() {
                 selectedPalette = palette,
                 pureBlack = isPureBlack
             ) {
+                val view = LocalView.current
+                SideEffect {
+                    val window = (view.context as? Activity)?.window ?: return@SideEffect
+                    WindowCompat.getInsetsController(window, view).apply {
+                        isAppearanceLightStatusBars = !isDark
+                        isAppearanceLightNavigationBars = !isDark
+                    }
+                }
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
