@@ -1,5 +1,7 @@
 package com.pox.colab.data
 
+import android.content.Context
+import com.pox.colab.engine.AlpineAppContainerManager
 import com.pox.colab.engine.AlpineBootstrapGenerator
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.ColabVM
@@ -42,42 +44,50 @@ class VMRepository(
         _vms.value = loadedVMs
     }
 
-    fun addAccount(email: String, displayName: String, tokenOrCookie: String, tier: String): ColabAccount {
+    fun addAccount(
+        context: Context,
+        email: String,
+        displayName: String,
+        tokenOrCookie: String,
+        tier: String
+    ): ColabAccount {
         val account = ColabAccount(
             email = email,
             displayName = displayName.ifEmpty { email.substringBefore("@") },
             tokenOrCookie = tokenOrCookie,
+            oauthToken = tokenOrCookie,
             tier = tier,
             isActive = _accounts.value.isEmpty()
         )
         val updated = _accounts.value + account
         _accounts.value = updated
         preferences.saveAccounts(updated)
+
         if (_activeAccount.value == null || account.isActive) {
             setActiveAccount(account.id)
         }
+
+        // Spawn a dedicated CLI instance inside the single Alpine container
+        scope.launch {
+            AlpineAppContainerManager.getInstance(context).createCliInstanceForAccount(account)
+        }
+
         return account
     }
 
-    fun spawnAlpineCliInstance(context: android.content.Context, account: ColabAccount) {
-        scope.launch {
-            com.pox.colab.engine.AlpineAppContainerManager.getInstance(context).spawnCliInstanceForAccount(account)
-        }
-    }
-
-    fun removeAlpineCliInstance(context: android.content.Context, accountId: String) {
-        scope.launch {
-            com.pox.colab.engine.AlpineAppContainerManager.getInstance(context).removeCliInstanceForAccount(accountId)
-        }
-    }
-
-    fun removeAccount(id: String) {
+    fun removeAccount(context: Context, id: String) {
         val updated = _accounts.value.filter { it.id != id }
         _accounts.value = updated
         preferences.saveAccounts(updated)
+
         if (_activeAccount.value?.id == id) {
             val nextActive = updated.firstOrNull()
             setActiveAccount(nextActive?.id)
+        }
+
+        // Clean up CLI instance in Alpine container
+        scope.launch {
+            AlpineAppContainerManager.getInstance(context).deleteCliInstanceForAccount(id)
         }
     }
 
@@ -154,59 +164,43 @@ class VMRepository(
         updateVM(updated)
     }
 
-    fun updateMetrics(id: String, metrics: VMMetrics) {
-        val target = getVMById(id) ?: return
-        val isAlive = metrics.cpuUsagePercent > 0f || metrics.ramTotalBytes > 0L || metrics.diskTotalBytes > 0L
-        val updated = target.copy(
-            metrics = metrics,
-            status = if (isAlive && target.status == VMStatus.STOPPED) VMStatus.RUNNING else target.status,
-            lastConnectedTimestamp = System.currentTimeMillis()
-        )
-        updateVM(updated)
-    }
-
     fun deleteVM(id: String) {
         val updated = _vms.value.filter { it.id != id }
         _vms.value = updated
         preferences.saveVMs(updated)
     }
 
-    fun getVMById(id: String): ColabVM? {
-        return _vms.value.find { it.id == id }
+    fun getVMById(id: String): ColabVM? = _vms.value.find { it.id == id }
+
+    fun updateMetrics(vmId: String, metrics: VMMetrics) {
+        val target = getVMById(vmId) ?: return
+        updateVM(target.copy(metrics = metrics))
     }
 
-    fun spinUpAlpineVM(id: String) {
-        val target = getVMById(id) ?: return
-        val runningVM = target.copy(
-            status = VMStatus.RUNNING,
-            uptimeSeconds = 0L,
-            lastConnectedTimestamp = System.currentTimeMillis()
-        )
-        updateVM(runningVM)
+    fun spinUpAlpineVM(vmId: String) {
+        val target = getVMById(vmId) ?: return
+        updateVM(target.copy(status = VMStatus.RUNNING))
     }
 
-    fun stopVM(id: String) {
-        val target = getVMById(id) ?: return
+    fun stopVM(vmId: String) {
+        val target = getVMById(vmId) ?: return
         updateVM(target.copy(status = VMStatus.STOPPED))
     }
 
     companion object {
         fun parseEndpoint(raw: String): Pair<String, Int> {
-            var s = raw.trim()
-            if (s.isBlank()) return Pair("", 22)
-            if (s.startsWith("tcp://", ignoreCase = true)) s = s.substring(6)
-            if (s.startsWith("ssh://", ignoreCase = true)) s = s.substring(6)
-            if (s.startsWith("http://", ignoreCase = true)) s = s.substring(7)
-            if (s.startsWith("https://", ignoreCase = true)) s = s.substring(8)
-            s = s.substringBefore("/").trim()
-            return if (s.contains(":")) {
-                val host = s.substringBefore(":")
-                val port = s.substringAfter(":").toIntOrNull() ?: 22
+            val clean = raw.trim()
+                .removePrefix("ssh://")
+                .removePrefix("tcp://")
+                .removePrefix("https://")
+                .removePrefix("http://")
+            return if (clean.contains(":")) {
+                val host = clean.substringBefore(":")
+                val port = clean.substringAfter(":").filter { it.isDigit() }.toIntOrNull() ?: 22
                 Pair(host, port)
             } else {
-                Pair(s, 22)
+                Pair(clean, 22)
             }
         }
     }
 }
-

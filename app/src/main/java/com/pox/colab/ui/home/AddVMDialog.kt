@@ -1,9 +1,6 @@
 package com.pox.colab.ui.home
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,13 +19,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cable
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeveloperBoard
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -37,7 +31,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -45,9 +38,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -68,8 +61,6 @@ import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.HardwareAccelerator
 import com.pox.colab.model.ResilientProtocol
 import com.pox.colab.model.TunnelProvider
-import com.pox.colab.theme.ColabOrange
-import com.pox.colab.theme.TerminalGreen
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,7 +82,6 @@ fun AddVMDialog(
     // Mode selection: 0 = Easy Mode (instant auto-generate), 1 = Advanced Mode (customizable, auto-fills if empty)
     var selectedMode by remember { mutableIntStateOf(0) }
 
-    // Auto-generated defaults
     val generatedSuffix = remember { UUID.randomUUID().toString().take(4) }
     val defaultName = remember { "colab-alpine-$generatedSuffix" }
     val defaultPassword = remember { "colab-$generatedSuffix-root" }
@@ -99,42 +89,31 @@ fun AddVMDialog(
     var vmName by remember { mutableStateOf("") }
     var rootPassword by remember { mutableStateOf("") }
     var tunnelEndpoint by remember { mutableStateOf("") }
-    var selectedAccountId by remember { mutableStateOf(activeAccountId ?: accounts.firstOrNull()?.id ?: "") }
-    var selectedAccelerator by remember { mutableStateOf(HardwareAccelerator.T4_GPU) }
-    var selectedTunnel by remember { mutableStateOf(TunnelProvider.CLOUDFLARE) }
+
+    var selectedAccountId by remember(accounts, activeAccountId) {
+        mutableStateOf(activeAccountId ?: accounts.firstOrNull()?.id ?: "")
+    }
+
+    var selectedAccelerator by remember { mutableStateOf(HardwareAccelerator.T4) }
+    var selectedTunnelProvider by remember { mutableStateOf(TunnelProvider.CLOUDFLARE) }
     var selectedProtocol by remember { mutableStateOf(ResilientProtocol.TMUX_SSH) }
 
     var accountDropdownExpanded by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.padding(end = 12.dp)
-                ) {
-                    Icon(
-                        imageVector = if (selectedMode == 0) Icons.Default.AutoAwesome else Icons.Default.Tune,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
-                Column {
-                    Text(
-                        text = "New VM Instance",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = if (selectedMode == 0) "Easy Mode (Auto-Generated)" else "Advanced Configuration",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            Column {
+                Text(
+                    text = "New Alpine Instance",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Google Colab VM with Resilient Terminal",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         text = {
@@ -142,258 +121,108 @@ fun AddVMDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Segmented Button Row: Easy Mode vs Advanced Mode
-                SingleChoiceSegmentedButtonRow(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                // Segmented Button: Easy Mode vs Advanced Mode
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     SegmentedButton(
                         selected = selectedMode == 0,
                         onClick = { selectedMode = 0 },
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                        icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp)) }
                     ) {
-                        Text("Easy Mode", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Easy Mode", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
 
                     SegmentedButton(
                         selected = selectedMode == 1,
                         onClick = { selectedMode = 1 },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.Tune,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                        icon = { Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp)) }
                     ) {
-                        Text("Advanced", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Advanced Mode", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
-                AnimatedContent(
-                    targetState = selectedMode,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "ModeTransition"
-                ) { mode ->
+                AnimatedContent(targetState = selectedMode, label = "modeContent") { mode ->
                     if (mode == 0) {
-                        // EASY MODE: 1-click generation, auto-fills everything
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        // Easy Mode Card
+                        OutlinedCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
                         ) {
-                            OutlinedCard(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                colors = androidx.compose.material3.CardDefaults.outlinedCardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("One-Click Auto Generation", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Automatically provisions an optimal Alpine container environment with NVIDIA T4 GPU, resilient tmux shell, and pre-generated secure root credentials.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.AutoAwesome,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "Autonomous Setup",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "One-tap provisioning generates a complete Alpine Linux container with official Colab CLI, T4 GPU accelerator, resilient Tmux session, and secure auto-generated credentials.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        lineHeight = 18.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(14.dp))
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                    Spacer(modifier = Modifier.height(14.dp))
-
-                                    // Auto-generated parameters preview
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Instance Name:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text(defaultName, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Accelerator:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("NVIDIA T4 GPU", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = TerminalGreen)
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Tunnel Provider:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("Cloudflare Quick Tunnel", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Resilience:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("Tmux State Sync (Never-Die)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                                    }
-                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text("Instance: $defaultName", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                Text("Hardware: NVIDIA T4 Tensor Core", fontSize = 12.sp)
+                                Text("Tunnel: Cloudflare Quick Tunnel", fontSize = 12.sp)
+                                Text("Shell: tmux Anti-Disconnect SSH", fontSize = 12.sp)
                             }
                         }
                     } else {
-                        // ADVANCED MODE: user fills in data, and if empty it automatically fills itself
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            Text(
-                                text = "Customize parameters below. Any field left blank will automatically self-populate with secure defaults.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            // Name
+                        // Advanced Mode form: auto-fills defaults if left empty
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             OutlinedTextField(
                                 value = vmName,
                                 onValueChange = { vmName = it },
-                                label = { Text("VM Name (optional)") },
+                                label = { Text("VM Instance Name (Optional)") },
                                 placeholder = { Text(defaultName) },
-                                supportingText = { Text("Leave blank to auto-generate: $defaultName") },
                                 singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
 
-                            // Root Password
                             OutlinedTextField(
                                 value = rootPassword,
                                 onValueChange = { rootPassword = it },
-                                label = { Text("SSH Root Password (optional)") },
-                                placeholder = { Text("Auto-generated if blank") },
-                                supportingText = { Text("Leave blank to generate random password") },
+                                label = { Text("Root Password (Optional)") },
+                                placeholder = { Text(defaultPassword) },
                                 singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth(),
-                                leadingIcon = {
-                                    Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                }
+                                shape = RoundedCornerShape(12.dp)
                             )
 
-                            // Tunnel Host / Port
+                            // Hardware Accelerator selector chips
+                            Text("Hardware Accelerator", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(HardwareAccelerator.NONE, HardwareAccelerator.T4, HardwareAccelerator.V100, HardwareAccelerator.A100).forEach { acc ->
+                                    FilterChip(
+                                        selected = selectedAccelerator == acc,
+                                        onClick = { selectedAccelerator = acc },
+                                        label = { Text(acc.name, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
+                            // Tunnel Provider selector chips
+                            Text("Tunnel Provider", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(TunnelProvider.CLOUDFLARE, TunnelProvider.BORE, TunnelProvider.NGROK).forEach { tun ->
+                                    FilterChip(
+                                        selected = selectedTunnelProvider == tun,
+                                        onClick = { selectedTunnelProvider = tun },
+                                        label = { Text(tun.name, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
                             OutlinedTextField(
                                 value = tunnelEndpoint,
                                 onValueChange = { tunnelEndpoint = it },
-                                label = { Text("Tunnel Endpoint (Optional)") },
-                                placeholder = { Text("e.g. bore.pub:38491 or trycloudflare.com") },
-                                supportingText = { Text("Can be entered now or configured in VM details.") },
+                                label = { Text("Preconfigured Tunnel Endpoint (Optional)") },
+                                placeholder = { Text("e.g. bore.pub:42195") },
                                 singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth(),
-                                leadingIcon = {
-                                    Icon(Icons.Default.Cable, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                }
+                                shape = RoundedCornerShape(12.dp)
                             )
-
-                            // Account Selection
-                            if (accounts.isNotEmpty()) {
-                                ExposedDropdownMenuBox(
-                                    expanded = accountDropdownExpanded,
-                                    onExpandedChange = { accountDropdownExpanded = !accountDropdownExpanded }
-                                ) {
-                                    val currentAccount = accounts.find { it.id == selectedAccountId } ?: accounts.first()
-                                    OutlinedTextField(
-                                        value = "${currentAccount.displayName} (${currentAccount.email})",
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Associated Colab Account") },
-                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountDropdownExpanded) },
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier
-                                            .menuAnchor()
-                                            .fillMaxWidth()
-                                    )
-                                    ExposedDropdownMenu(
-                                        expanded = accountDropdownExpanded,
-                                        onDismissRequest = { accountDropdownExpanded = false }
-                                    ) {
-                                        accounts.forEach { acc ->
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Column {
-                                                        Text(acc.displayName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                        Text(acc.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                    }
-                                                },
-                                                onClick = {
-                                                    selectedAccountId = acc.id
-                                                    accountDropdownExpanded = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Accelerator Selection
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Hardware Accelerator", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                                HardwareAccelerator.values().forEach { accel ->
-                                    FilterChip(
-                                        selected = selectedAccelerator == accel,
-                                        onClick = { selectedAccelerator = accel },
-                                        label = { Text(accel.label, fontSize = 12.sp) },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            }
-
-                            // Tunnel Provider Selection
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Tunnel Provider", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                                TunnelProvider.values().forEach { tunnel ->
-                                    FilterChip(
-                                        selected = selectedTunnel == tunnel,
-                                        onClick = { selectedTunnel = tunnel },
-                                        label = { Text(tunnel.label, fontSize = 12.sp) },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            }
-
-                            // Resilient SSH Protocol
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Connection Protocol", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                                ResilientProtocol.values().forEach { proto ->
-                                    FilterChip(
-                                        selected = selectedProtocol == proto,
-                                        onClick = { selectedProtocol = proto },
-                                        label = {
-                                            Column(modifier = Modifier.padding(vertical = 2.dp)) {
-                                                Text(proto.label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                                Text(proto.description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            }
                         }
                     }
                 }
@@ -402,38 +231,27 @@ fun AddVMDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val finalName = if (selectedMode == 0 || vmName.isBlank()) defaultName else vmName.trim()
-                    val finalPassword = if (selectedMode == 0 || rootPassword.isBlank()) defaultPassword else rootPassword.trim()
-                    val effectiveAccountId = selectedAccountId.ifBlank {
-                        accounts.firstOrNull()?.id ?: "local-session"
-                    }
-                    val finalAccelerator = if (selectedMode == 0) HardwareAccelerator.T4_GPU else selectedAccelerator
-                    val finalTunnel = if (selectedMode == 0) TunnelProvider.CLOUDFLARE else selectedTunnel
-                    val finalProtocol = if (selectedMode == 0) ResilientProtocol.TMUX_SSH else selectedProtocol
+                    val finalName = vmName.trim().ifEmpty { defaultName }
+                    val finalPassword = rootPassword.trim().ifEmpty { defaultPassword }
+                    val finalAccountId = selectedAccountId.ifEmpty { accounts.firstOrNull()?.id ?: "" }
 
                     onConfirm(
                         finalName,
-                        effectiveAccountId,
-                        finalAccelerator,
-                        finalTunnel,
-                        finalProtocol,
+                        finalAccountId,
+                        if (selectedMode == 0) HardwareAccelerator.T4 else selectedAccelerator,
+                        if (selectedMode == 0) TunnelProvider.CLOUDFLARE else selectedTunnelProvider,
+                        if (selectedMode == 0) ResilientProtocol.TMUX_SSH else selectedProtocol,
                         finalPassword,
                         tunnelEndpoint.trim()
                     )
                 },
+                shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(
-                    imageVector = if (selectedMode == 0) Icons.Default.AutoAwesome else Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(if (selectedMode == 0) "Instant Generate" else "Create Instance", fontWeight = FontWeight.SemiBold)
+            ) {
+                Text(if (selectedMode == 0) "Generate VM" else "Create VM", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

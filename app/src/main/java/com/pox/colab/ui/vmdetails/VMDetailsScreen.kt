@@ -135,7 +135,6 @@ fun VMDetailsScreen(
                     }
                 },
                 actions = {
-                    // Quick Tunnel Config
                     IconButton(onClick = { showTunnelDialog = true }) {
                         val hasHost = vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" || !vm.tunnelUrl.isNullOrBlank()
                         Icon(
@@ -145,7 +144,6 @@ fun VMDetailsScreen(
                         )
                     }
 
-                    // Power toggle
                     IconButton(
                         onClick = {
                             if (vm.status == VMStatus.RUNNING) {
@@ -173,7 +171,7 @@ fun VMDetailsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Material 3 PrimaryTabRow for peer views inside the single VM destination
+            // Material 3 PrimaryTabRow: 1 Dashboard, 2 Console, 3 File Manager
             PrimaryTabRow(
                 selectedTabIndex = selectedTabIndex,
                 containerColor = MaterialTheme.colorScheme.surface,
