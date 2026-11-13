@@ -78,6 +78,41 @@ class AlpineAppContainerManager private constructor(private val context: Context
             )
             cliExecutable.setExecutable(true, false)
 
+            // Setup dedicated colab-multi-mgr multi-instance & auth manager tool
+            val multiMgrExecutable = File(binDir, "colab-multi-mgr")
+            multiMgrExecutable.writeText(
+                """
+                #!/bin/sh
+                # Colab Multi-Instance & Auth Manager Tool inside Alpine Linux
+                ACTION="${'$'}1"
+                ACCOUNT_ID="${'$'}2"
+                ARG3="${'$'}3"
+                INSTANCES_DIR="${'$'}(dirname "${'$'}0")/../instances"
+
+                case "${'$'}ACTION" in
+                    new-auth)
+                        python3 -m colab_cli.auth login --headless
+                        ;;
+                    list)
+                        ls -1 "${'$'}INSTANCES_DIR"
+                        ;;
+                    set-status)
+                        echo "Instance ${'$'}ACCOUNT_ID enabled=${'$'}ARG3"
+                        ;;
+                    set-tier)
+                        echo "Instance ${'$'}ACCOUNT_ID tier=${'$'}ARG3"
+                        ;;
+                    delete)
+                        rm -rf "${'$'}INSTANCES_DIR/${'$'}ACCOUNT_ID"
+                        ;;
+                    *)
+                        echo "Usage: colab-multi-mgr <new-auth|list|set-status|set-tier|delete>"
+                        ;;
+                esac
+                """.trimIndent()
+            )
+            multiMgrExecutable.setExecutable(true, false)
+
             // Execute auto-upgrade script asynchronously
             runAutoUpgrade(upgradeScript)
 
