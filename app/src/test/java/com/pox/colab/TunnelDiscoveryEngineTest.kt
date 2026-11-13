@@ -2,18 +2,15 @@ package com.pox.colab
 
 import com.pox.colab.engine.TunnelDiscoveryEngine
 import kotlinx.coroutines.runBlocking
-import okhttp3.Call
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
-import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.mockito.Mockito
 
 class TunnelDiscoveryEngineTest {
 
@@ -33,20 +30,17 @@ class TunnelDiscoveryEngineTest {
 
     @Test
     fun pollDiscoveredEndpoint_parsesCleanEndpointSuccessfully() = runBlocking {
-        val mockClient = Mockito.mock(OkHttpClient::class.java)
-        val mockCall = Mockito.mock(Call::class.java)
-
-        val responseBody = "bore.pub:39281\n".toResponseBody()
-        val response = Response.Builder()
-            .request(Request.Builder().url("https://ntfy.sh/test/raw?poll=1").build())
-            .protocol(Protocol.HTTP_1_1)
-            .code(200)
-            .message("OK")
-            .body(responseBody)
+        val mockClient = OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("bore.pub:39281\n".toResponseBody())
+                    .build()
+            })
             .build()
-
-        Mockito.`when`(mockClient.newCall(Mockito.any())).thenReturn(mockCall)
-        Mockito.`when`(mockCall.execute()).thenReturn(response)
 
         val origClient = TunnelDiscoveryEngine.httpClient
         try {
@@ -61,20 +55,17 @@ class TunnelDiscoveryEngineTest {
 
     @Test
     fun pollDiscoveredEndpoint_picksLatestLineFromMultiMessageFeed() = runBlocking {
-        val mockClient = Mockito.mock(OkHttpClient::class.java)
-        val mockCall = Mockito.mock(Call::class.java)
-
-        val responseBody = "old.bore.pub:1111\n\nbore.pub:45892\n".toResponseBody()
-        val response = Response.Builder()
-            .request(Request.Builder().url("https://ntfy.sh/test/raw?poll=1").build())
-            .protocol(Protocol.HTTP_1_1)
-            .code(200)
-            .message("OK")
-            .body(responseBody)
+        val mockClient = OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("old.bore.pub:1111\n\nbore.pub:45892\n".toResponseBody())
+                    .build()
+            })
             .build()
-
-        Mockito.`when`(mockClient.newCall(Mockito.any())).thenReturn(mockCall)
-        Mockito.`when`(mockCall.execute()).thenReturn(response)
 
         val origClient = TunnelDiscoveryEngine.httpClient
         try {
@@ -89,19 +80,17 @@ class TunnelDiscoveryEngineTest {
 
     @Test
     fun pollDiscoveredEndpoint_returnsNullOnBlankOrErrorResponse() = runBlocking {
-        val mockClient = Mockito.mock(OkHttpClient::class.java)
-        val mockCall = Mockito.mock(Call::class.java)
-
-        val response = Response.Builder()
-            .request(Request.Builder().url("https://ntfy.sh/test/raw?poll=1").build())
-            .protocol(Protocol.HTTP_1_1)
-            .code(404)
-            .message("Not Found")
-            .body("".toResponseBody())
+        val mockClient = OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(404)
+                    .message("Not Found")
+                    .body("".toResponseBody())
+                    .build()
+            })
             .build()
-
-        Mockito.`when`(mockClient.newCall(Mockito.any())).thenReturn(mockCall)
-        Mockito.`when`(mockCall.execute()).thenReturn(response)
 
         val origClient = TunnelDiscoveryEngine.httpClient
         try {
@@ -113,4 +102,3 @@ class TunnelDiscoveryEngineTest {
         }
     }
 }
-
