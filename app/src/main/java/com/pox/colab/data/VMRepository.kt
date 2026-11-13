@@ -12,14 +12,16 @@ import com.pox.colab.model.VMMetrics
 import com.pox.colab.model.VMStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class VMRepository(
     private val preferences: AppPreferences,
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     private val _accounts = MutableStateFlow<List<ColabAccount>>(emptyList())
     val accounts: StateFlow<List<ColabAccount>> = _accounts.asStateFlow()
@@ -59,9 +61,11 @@ class VMRepository(
             tier = tier,
             isActive = _accounts.value.isEmpty()
         )
-        val updated = _accounts.value + account
-        _accounts.value = updated
-        preferences.saveAccounts(updated)
+        _accounts.update { current ->
+            val updated = current + account
+            preferences.saveAccounts(updated)
+            updated
+        }
 
         if (_activeAccount.value == null || account.isActive) {
             setActiveAccount(account.id)
@@ -76,12 +80,14 @@ class VMRepository(
     }
 
     fun removeAccount(context: Context, id: String) {
-        val updated = _accounts.value.filter { it.id != id }
-        _accounts.value = updated
-        preferences.saveAccounts(updated)
+        _accounts.update { current ->
+            val updated = current.filter { it.id != id }
+            preferences.saveAccounts(updated)
+            updated
+        }
 
         if (_activeAccount.value?.id == id) {
-            val nextActive = updated.firstOrNull()
+            val nextActive = _accounts.value.firstOrNull()
             setActiveAccount(nextActive?.id)
         }
 
@@ -95,21 +101,27 @@ class VMRepository(
         preferences.setActiveAccountId(id)
         val target = _accounts.value.find { it.id == id }
         _activeAccount.value = target
-        val updated = _accounts.value.map { it.copy(isActive = it.id == id) }
-        _accounts.value = updated
-        preferences.saveAccounts(updated)
+        _accounts.update { current ->
+            val updated = current.map { it.copy(isActive = it.id == id) }
+            preferences.saveAccounts(updated)
+            updated
+        }
     }
 
     fun toggleAccountEnabled(id: String, isEnabled: Boolean) {
-        val updated = _accounts.value.map { if (it.id == id) it.copy(isEnabled = isEnabled) else it }
-        _accounts.value = updated
-        preferences.saveAccounts(updated)
+        _accounts.update { current ->
+            val updated = current.map { if (it.id == id) it.copy(isEnabled = isEnabled) else it }
+            preferences.saveAccounts(updated)
+            updated
+        }
     }
 
     fun updateAccountTier(id: String, tier: String) {
-        val updated = _accounts.value.map { if (it.id == id) it.copy(tier = tier) else it }
-        _accounts.value = updated
-        preferences.saveAccounts(updated)
+        _accounts.update { current ->
+            val updated = current.map { if (it.id == id) it.copy(tier = tier) else it }
+            preferences.saveAccounts(updated)
+            updated
+        }
     }
 
     fun addVM(
@@ -139,16 +151,20 @@ class VMRepository(
         val completeVM = initialVM.copy(
             bootstrapScript = AlpineBootstrapGenerator.generateBootstrapScript(initialVM, account?.tokenOrCookie)
         )
-        val updated = _vms.value + completeVM
-        _vms.value = updated
-        preferences.saveVMs(updated)
+        _vms.update { current ->
+            val updated = current + completeVM
+            preferences.saveVMs(updated)
+            updated
+        }
         return completeVM
     }
 
     fun updateVM(vm: ColabVM) {
-        val updated = _vms.value.map { if (it.id == vm.id) vm else it }
-        _vms.value = updated
-        preferences.saveVMs(updated)
+        _vms.update { current ->
+            val updated = current.map { if (it.id == vm.id) vm else it }
+            preferences.saveVMs(updated)
+            updated
+        }
     }
 
     fun updateTunnelEndpoint(id: String, rawEndpoint: String) {
@@ -165,9 +181,11 @@ class VMRepository(
     }
 
     fun deleteVM(id: String) {
-        val updated = _vms.value.filter { it.id != id }
-        _vms.value = updated
-        preferences.saveVMs(updated)
+        _vms.update { current ->
+            val updated = current.filter { it.id != id }
+            preferences.saveVMs(updated)
+            updated
+        }
     }
 
     fun getVMById(id: String): ColabVM? = _vms.value.find { it.id == id }

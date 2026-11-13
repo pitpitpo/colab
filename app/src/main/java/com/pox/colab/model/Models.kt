@@ -116,4 +116,23 @@ data class RemoteFile(
     val sizeBytes: Long,
     val permissions: String = "-rw-r--r--",
     val modifiedTime: String = ""
-)
+) {
+    fun formattedSize(): String {
+        if (sizeBytes < 1024) return "$sizeBytes B"
+        val kb = sizeBytes / 1024.0
+        if (kb < 1024) return String.format("%.1f KB", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format("%.1f MB", mb)
+        val gb = mb / 1024.0
+        return String.format("%.2f GB", gb)
+    }
+
+    val isTextOrCode: Boolean
+        get() {
+            val lower = name.lowercase()
+            return lower.endsWith(".py") || lower.endsWith(".sh") || lower.endsWith(".json") ||
+                   lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".log") ||
+                   lower.endsWith(".csv") || lower.endsWith(".yaml") || lower.endsWith(".yml") ||
+                   lower.endsWith(".ipynb") || lower.endsWith(".conf") || lower.endsWith(".xml")
+        }
+}

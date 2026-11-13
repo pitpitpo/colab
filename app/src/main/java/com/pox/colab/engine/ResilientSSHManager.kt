@@ -119,6 +119,8 @@ class ResilientSSHManager(
         }
     }
 
+    fun sendCommand(input: String) = sendInput(input)
+
     fun sendInput(input: String) {
         scope.launch(Dispatchers.IO) {
             try {
@@ -170,6 +172,8 @@ class ResilientSSHManager(
             }
         }
     }
+
+    fun clearOutput() = clearScreen()
 
     fun clearScreen() {
         _terminalOutput.value = emptyList()

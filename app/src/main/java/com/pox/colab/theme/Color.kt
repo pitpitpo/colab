@@ -46,6 +46,7 @@ val OutlineDark = Color(0xFF3D3D3D)
 val OutlineVariantDark = Color(0xFF262626)
 
 // Terminal ANSI standard colors
+val TerminalBackground = Color(0xFF0F141C)
 val TerminalGreen = Color(0xFF3FB950)
 val TerminalRed = Color(0xFFF85149)
 val TerminalYellow = Color(0xFFE3B341)

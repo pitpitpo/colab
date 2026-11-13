@@ -117,6 +117,16 @@ object ColabAuthEngine {
     }
 
     /**
+     * Backward-compatible alias used by SettingsScreen.
+     */
+    suspend fun exchangeCodeForProfile(
+        code: String,
+        session: ColabAuthSession? = null
+    ): OAuthUserProfile {
+        return authenticateWithCodeOrToken(code, session).getOrThrow()
+    }
+
+    /**
      * Exchanges the authorization code received from Google's applicationdefaultauthcode.html
      * landing page for OAuth credentials using PKCE verification, then automatically fetches
      * Google user info and detects Colab compute unit subscription tier without manual entry.
