@@ -1,6 +1,7 @@
 package com.pox.colab.ui.home
 
 import android.animation.ValueAnimator
+import android.widget.Toast
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -31,6 +32,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
@@ -78,6 +80,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -96,6 +99,7 @@ import com.pox.colab.model.VMStatus
 import com.pox.colab.theme.statusSuccessColor
 import com.pox.colab.theme.vmStatusColor
 import com.pox.colab.theme.vmStatusLabel
+import com.pox.colab.ui.settings.SignInAccountDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,12 +108,14 @@ fun HomeScreen(
     onNavigateToVM: (vmId: String, tabIndex: Int) -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
+    val context = LocalContext.current
     val vms by repository.vms.collectAsState()
     val accounts by repository.accounts.collectAsState()
     val activeAccount by repository.activeAccount.collectAsState()
     val isLoading by repository.isLoading.collectAsState()
 
     var showAddDialog by remember { mutableStateOf(false) }
+    var showSignInDialog by remember { mutableStateOf(false) }
     var accountMenuExpanded by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
@@ -150,7 +156,13 @@ fun HomeScreen(
                 actions = {
                     // Account Pill Button
                     Surface(
-                        onClick = { accountMenuExpanded = true },
+                        onClick = {
+                            if (accounts.isEmpty()) {
+                                showSignInDialog = true
+                            } else {
+                                accountMenuExpanded = true
+                            }
+                        },
                         shape = RoundedCornerShape(20.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -161,14 +173,14 @@ fun HomeScreen(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Person,
+                                imageVector = if (activeAccount != null) Icons.Default.Person else Icons.Default.AccountCircle,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
                                 tint = if (activeAccount != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = activeAccount?.displayName ?: "No Account",
+                                text = activeAccount?.displayName ?: "Connect Account",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
@@ -220,7 +232,14 @@ fun HomeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showAddDialog = true },
+                onClick = {
+                    if (accounts.isEmpty()) {
+                        Toast.makeText(context, "Google Account required to provision Colab instances. Please sign in.", Toast.LENGTH_LONG).show()
+                        showSignInDialog = true
+                    } else {
+                        showAddDialog = true
+                    }
+                },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = CircleShape
@@ -273,7 +292,9 @@ fun HomeScreen(
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     M3EmptyState(
                         hasAccounts = accounts.isNotEmpty(),
-                        onPrimaryAction = { showAddDialog = true }
+                        activeAccount = activeAccount,
+                        onPrimaryAction = { showAddDialog = true },
+                        onConnectAccount = { showSignInDialog = true }
                     )
                 }
             } else if (filteredVms.isEmpty()) {
@@ -324,9 +345,24 @@ fun HomeScreen(
                 accounts = accounts,
                 activeAccountId = activeAccount?.id,
                 onDismiss = { showAddDialog = false },
+                onConnectAccount = {
+                    showAddDialog = false
+                    showSignInDialog = true
+                },
                 onConfirm = { name, accId, accelerator, tunnel, proto, password, tunnelEndpoint ->
                     repository.addVM(name, accId, accelerator, tunnel, proto, password, tunnelEndpoint)
                     showAddDialog = false
+                }
+            )
+        }
+
+        if (showSignInDialog) {
+            SignInAccountDialog(
+                onDismiss = { showSignInDialog = false },
+                onConfirm = { email, name, accessToken, tier, tokenJson ->
+                    repository.addAccount(context, email, name, accessToken, tier, tokenJson)
+                    showSignInDialog = false
+                    Toast.makeText(context, "Account connected: $email", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -336,7 +372,9 @@ fun HomeScreen(
 @Composable
 fun M3EmptyState(
     hasAccounts: Boolean,
-    onPrimaryAction: () -> Unit
+    activeAccount: ColabAccount?,
+    onPrimaryAction: () -> Unit,
+    onConnectAccount: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
@@ -354,28 +392,41 @@ fun M3EmptyState(
                 color = MaterialTheme.colorScheme.surfaceContainerHighest
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_colab_logo),
-                        contentDescription = null,
-                        modifier = Modifier.size(36.dp),
-                        tint = Color.Unspecified
-                    )
+                    if (hasAccounts) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_colab_logo),
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp),
+                            tint = Color.Unspecified
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(38.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
-            Text("No Virtual Machines", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                text = if (hasAccounts) "No Virtual Machines" else "Connect Google Account",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = if (hasAccounts) "Create a Google Colab VM instance with Colab CLI and multi-tab console."
-                       else "Add a Google Account in Settings or create a standalone instance.",
+                text = if (hasAccounts) "Ready to launch for ${activeAccount?.displayName ?: "your account"}. Create a Colab instance to provision GPU/TPU runtimes."
+                       else "Google Colab allocates GPU/TPU runtimes exclusively to authenticated Google accounts. Connect your account using official PKCE OAuth2 to start managing Colab instances.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(24.dp))
             Button(
-                onClick = onPrimaryAction,
+                onClick = if (hasAccounts) onPrimaryAction else onConnectAccount,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
@@ -383,9 +434,16 @@ fun M3EmptyState(
                 shape = RoundedCornerShape(12.dp),
                 contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(
+                    imageVector = if (hasAccounts) Icons.Default.Add else Icons.Default.AccountCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("New VM Instance", fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = if (hasAccounts) "New Colab Instance" else "Connect Google Account",
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
@@ -426,10 +484,10 @@ fun VMGridCard(
                         Text(vm.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val hasTunnel = vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" || !vm.tunnelUrl.isNullOrBlank()
                         Text(
-                            text = if (hasTunnel) "${vm.sshConfig.host}:${vm.sshConfig.port}" else account?.displayName ?: "Standalone Session",
+                            text = if (hasTunnel) "${vm.sshConfig.host}:${vm.sshConfig.port}" else account?.let { "${it.displayName} • ${it.tier}" } ?: "Account Disconnected",
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = if (hasTunnel) FontFamily.Monospace else FontFamily.Default,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (account != null || hasTunnel) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )

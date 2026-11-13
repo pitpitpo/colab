@@ -57,7 +57,18 @@ class VMRepository(
         _activeAccount.value = loadedAccounts.find { it.id == activeId } ?: loadedAccounts.firstOrNull()
 
         val loadedVMs = preferences.loadVMs()
-        _vms.value = loadedVMs
+        // Strictly purge legacy unlinked/dummy VMs that have no authenticated Google account
+        val validVMs = if (loadedAccounts.isEmpty()) {
+            emptyList()
+        } else {
+            loadedVMs.filter { vm ->
+                vm.accountId.isNotBlank() && loadedAccounts.any { it.id == vm.accountId }
+            }
+        }
+        if (validVMs.size != loadedVMs.size) {
+            preferences.saveVMs(validVMs)
+        }
+        _vms.value = validVMs
     }
 
     fun addAccount(
@@ -179,10 +190,14 @@ class VMRepository(
         tunnelEndpoint: String = ""
     ): ColabVM {
         val (host, port) = parseEndpoint(tunnelEndpoint)
-        val account = _accounts.value.find { it.id == accountId }
+        val targetAccount = _accounts.value.find { it.id == accountId }
+            ?: _activeAccount.value
+            ?: throw IllegalStateException("Cannot create Colab VM: An authenticated Google Colab account is required. Please connect your Google account first.")
+
+        val resolvedAccountId = targetAccount.id
         val initialVM = ColabVM(
             name = name,
-            accountId = accountId,
+            accountId = resolvedAccountId,
             hardwareAccelerator = hardwareAccelerator,
             tunnelProvider = tunnelProvider,
             tunnelUrl = tunnelEndpoint.trim().takeIf { it.isNotBlank() },
@@ -193,8 +208,9 @@ class VMRepository(
                 password = password
             )
         )
+        val token = targetAccount.oauthToken.ifBlank { targetAccount.tokenOrCookie }
         val completeVM = initialVM.copy(
-            bootstrapScript = AlpineBootstrapGenerator.generateBootstrapScript(initialVM, account?.tokenOrCookie)
+            bootstrapScript = AlpineBootstrapGenerator.generateBootstrapScript(initialVM, token)
         )
         val updated = _vms.updateAndGet { current ->
             current + completeVM
@@ -265,6 +281,15 @@ class VMRepository(
                 val mode = preferences.getRuntimeEngineMode()
                 val account = _accounts.value.find { it.id == target.accountId } ?: _activeAccount.value
                 val token = account?.oauthToken?.ifBlank { account.tokenOrCookie } ?: account?.tokenOrCookie ?: ""
+
+                if (account == null || token.isBlank()) {
+                    android.util.Log.e("VMRepository", "Authentication failure: VM ${target.name} ($vmId) has no valid authenticated Google Colab account or OAuth token.")
+                    val current = getVMById(vmId)
+                    if (current != null) {
+                        updateVM(current.copy(status = VMStatus.ERROR))
+                    }
+                    return@launch
+                }
 
                 // Ensure bootstrap script is generated
                 val bootstrapScript = if (target.bootstrapScript.isNotBlank()) {
