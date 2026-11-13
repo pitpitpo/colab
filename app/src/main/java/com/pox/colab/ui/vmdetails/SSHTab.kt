@@ -47,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -248,13 +249,13 @@ fun SSHTab(
                         activeSessionId = newId
                         newSession.manager.connect()
                     },
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "New Terminal Tab",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
@@ -262,13 +263,13 @@ fun SSHTab(
                 Box {
                     IconButton(
                         onClick = { showBgMenu = true },
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Palette,
                             contentDescription = "Terminal Background",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -376,12 +377,11 @@ private fun ActiveSessionTerminalView(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { manager.clearOutput() }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.DeleteSweep, contentDescription = "Clear buffer", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                    IconButton(onClick = { manager.clearOutput() }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = "Clear buffer", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(onClick = { manager.connect() }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Reconnect", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    IconButton(onClick = { manager.connect() }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Reconnect", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     }
                 }
             }

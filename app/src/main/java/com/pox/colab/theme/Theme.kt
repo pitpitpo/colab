@@ -70,13 +70,37 @@ fun createPaletteColorScheme(
     }
 
     if (!darkTheme) {
+        val (lightPrimary, lightOnPrimary, lightPrimaryContainer, lightOnPrimaryContainer) = when (palette) {
+            "matrix_green" -> listOf(Color(0xFF166534), Color(0xFFFFFFFF), Color(0xFFBBF7D0), Color(0xFF052E16))
+            "cyber_cyan" -> listOf(Color(0xFF0369A1), Color(0xFFFFFFFF), Color(0xFFBAE6FD), Color(0xFF082F49))
+            "neon_violet" -> listOf(Color(0xFF7E22CE), Color(0xFFFFFFFF), Color(0xFFE9D5FF), Color(0xFF3B0764))
+            "monochrome" -> listOf(Color(0xFF262626), Color(0xFFFFFFFF), Color(0xFFE5E5E5), Color(0xFF000000))
+            else -> listOf(Color(0xFFB35C00), Color(0xFFFFFFFF), Color(0xFFFFDCC1), Color(0xFF2E1500))
+        }
+
         return lightColorScheme(
-            primary = primary,
-            onPrimary = onPrimaryContainer,
-            primaryContainer = primaryContainer,
-            onPrimaryContainer = onPrimary,
+            primary = lightPrimary,
+            onPrimary = lightOnPrimary,
+            primaryContainer = lightPrimaryContainer,
+            onPrimaryContainer = lightOnPrimaryContainer,
+            secondary = Color(0xFF715B2E),
+            onSecondary = Color(0xFFFFFFFF),
+            secondaryContainer = Color(0xFFFDE0A4),
+            onSecondaryContainer = Color(0xFF261900),
+            tertiary = Color(0xFF4C662B),
+            onTertiary = Color(0xFFFFFFFF),
+            tertiaryContainer = Color(0xFFCDEDA3),
+            onTertiaryContainer = Color(0xFF102000),
+            error = Color(0xFFBA1A1A),
+            onError = Color(0xFFFFFFFF),
+            errorContainer = Color(0xFFFFDAD6),
+            onErrorContainer = Color(0xFF410002),
             background = Color(0xFFFBFDF8),
+            onBackground = Color(0xFF191C19),
             surface = Color(0xFFFBFDF8),
+            onSurface = Color(0xFF191C19),
+            surfaceVariant = Color(0xFFE1E4DA),
+            onSurfaceVariant = Color(0xFF44483F),
             surfaceContainerLowest = Color(0xFFFFFFFF),
             surfaceContainerLow = Color(0xFFF5F7F2),
             surfaceContainer = Color(0xFFEFF1EC),

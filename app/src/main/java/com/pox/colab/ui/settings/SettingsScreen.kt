@@ -534,19 +534,19 @@ fun SettingsScreen(
 
                             latestRelease?.let { release ->
                                 Spacer(modifier = Modifier.height(14.dp))
-                                val isUpToDate = release.tagName.trim().removePrefix("v").equals(currentAppVersion.removePrefix("v"), ignoreCase = true)
+                                val isUpdateAvailable = isVersionNewer(release.tagName, currentAppVersion)
                                 Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
                                     Column(modifier = Modifier.padding(14.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(
-                                                imageVector = if (isUpToDate) Icons.Default.CheckCircle else Icons.Default.Download,
+                                                imageVector = if (!isUpdateAvailable) Icons.Default.CheckCircle else Icons.Default.Download,
                                                 contentDescription = null,
-                                                tint = if (isUpToDate) com.pox.colab.theme.TerminalGreen else MaterialTheme.colorScheme.primary,
+                                                tint = if (!isUpdateAvailable) com.pox.colab.theme.TerminalGreen else MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier.size(20.dp)
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Text(
-                                                text = if (isUpToDate) "App is Up to Date ($currentAppVersion)" else "Update Available: ${release.tagName} (Current: $currentAppVersion)",
+                                                text = if (!isUpdateAvailable) "App is Up to Date ($currentAppVersion)" else "Update Available: ${release.tagName} (Current: $currentAppVersion)",
                                                 fontWeight = FontWeight.Bold,
                                                 style = MaterialTheme.typography.titleSmall
                                             )
@@ -554,7 +554,7 @@ fun SettingsScreen(
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(release.body.take(200) + if (release.body.length > 200) "..." else "", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         
-                                        if (!isUpToDate) {
+                                        if (isUpdateAvailable) {
                                             Spacer(modifier = Modifier.height(10.dp))
                                             release.assets.forEach { asset ->
                                                 OutlinedButton(
@@ -633,6 +633,19 @@ private suspend fun fetchGitHubRelease(): GitHubReleaseInfo = withContext(Dispat
             assets = assetsList
         )
     }
+}
+
+private fun isVersionNewer(latest: String, current: String): Boolean {
+    val l = latest.trim().removePrefix("v").split(".").mapNotNull { it.takeWhile { c -> c.isDigit() }.toIntOrNull() }
+    val c = current.trim().removePrefix("v").split(".").mapNotNull { it.takeWhile { ch -> ch.isDigit() }.toIntOrNull() }
+    val maxLen = maxOf(l.size, c.size)
+    for (i in 0 until maxLen) {
+        val lPart = l.getOrElse(i) { 0 }
+        val cPart = c.getOrElse(i) { 0 }
+        if (lPart > cPart) return true
+        if (lPart < cPart) return false
+    }
+    return false
 }
 
 @Composable

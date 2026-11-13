@@ -394,7 +394,7 @@ fun FilesTab(
                     ) {
                         Text(
                             text = previewContent,
-                            color = TerminalForeground,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 12.sp,
                             lineHeight = 16.sp
