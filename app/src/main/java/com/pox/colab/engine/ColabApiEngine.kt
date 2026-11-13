@@ -60,7 +60,9 @@ data class CellExecutionResult(
     val stdout: String,
     val stderr: String,
     /** HTTP status code from execution endpoint, or -1 if network-level failure. */
-    val httpStatus: Int = 200
+    val httpStatus: Int = 200,
+    /** Raw response or diagnostic output from execution endpoint. */
+    val rawResponse: String = ""
 )
 
 /** Runtime health / state as returned by checkRuntimeStatus. */
