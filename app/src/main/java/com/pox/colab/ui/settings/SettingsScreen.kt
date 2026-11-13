@@ -125,8 +125,9 @@ fun SettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
+                .padding(innerPadding)
+                .navigationBarsPadding(),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             // =========================================================================
@@ -533,24 +534,41 @@ fun SettingsScreen(
 
                             latestRelease?.let { release ->
                                 Spacer(modifier = Modifier.height(14.dp))
+                                val isUpToDate = release.tagName.trim().removePrefix("v").equals(currentAppVersion.removePrefix("v"), ignoreCase = true)
                                 Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text("Latest: ${release.tagName} - ${release.title}", fontWeight = FontWeight.Bold)
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(release.body.take(200) + "...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        release.assets.forEach { asset ->
-                                            OutlinedButton(
-                                                onClick = {
-                                                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(asset.downloadUrl))
-                                                    context.startActivity(browserIntent)
-                                                },
-                                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Download ${asset.name} (${asset.sizeBytes / (1024 * 1024)} MB)", fontSize = 12.sp)
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = if (isUpToDate) Icons.Default.CheckCircle else Icons.Default.Download,
+                                                contentDescription = null,
+                                                tint = if (isUpToDate) com.pox.colab.theme.TerminalGreen else MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = if (isUpToDate) "App is Up to Date ($currentAppVersion)" else "Update Available: ${release.tagName} (Current: $currentAppVersion)",
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.titleSmall
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(release.body.take(200) + if (release.body.length > 200) "..." else "", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        
+                                        if (!isUpToDate) {
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            release.assets.forEach { asset ->
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(asset.downloadUrl))
+                                                        context.startActivity(browserIntent)
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("Download ${asset.name} (${asset.sizeBytes / (1024 * 1024)} MB)", fontSize = 12.sp)
+                                                }
                                             }
                                         }
                                     }

@@ -227,7 +227,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -262,12 +262,36 @@ fun HomeScreen(
                 items(2) {
                     GridItemPlaceholder()
                 }
-            } else if (filteredVms.isEmpty()) {
+            } else if (vms.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     M3EmptyState(
                         hasAccounts = accounts.isNotEmpty(),
                         onPrimaryAction = { showAddDialog = true }
                     )
+                }
+            } else if (filteredVms.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text("No Instances Found", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("No instances match '$searchQuery'", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            TextButton(onClick = { searchQuery = "" }) {
+                                Text("Clear Search")
+                            }
+                        }
+                    }
                 }
             } else {
                 items(filteredVms, key = { it.id }) { vm ->

@@ -74,7 +74,6 @@ import androidx.compose.ui.unit.sp
 import com.pox.colab.engine.FileManagerEngine
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.RemoteFile
-import com.pox.colab.theme.TerminalBackground
 import com.pox.colab.theme.TerminalForeground
 import kotlinx.coroutines.launch
 
@@ -381,7 +380,7 @@ fun FilesTab(
             },
             text = {
                 Surface(
-                    color = TerminalBackground,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()

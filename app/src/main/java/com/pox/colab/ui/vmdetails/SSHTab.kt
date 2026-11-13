@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -327,6 +329,8 @@ private fun ActiveSessionTerminalView(
     val statusMessage by manager.statusMessage.collectAsState()
 
     var inputCommand by remember { mutableStateOf("") }
+    var isCtrlActive by remember { mutableStateOf(false) }
+    var isAltActive by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(terminalLines.size) {
@@ -377,6 +381,32 @@ private fun ActiveSessionTerminalView(
             }
         }
 
+        // Optional Tunnel Configuration Prompt if disconnected / unreachable
+        if (connectionState == SSHConnectionState.DISCONNECTED || connectionState == SSHConnectionState.ERROR) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "SSH target unreachable or tunnel endpoint unset.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(onClick = onConfigureTunnel, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                        Icon(Icons.Default.Cable, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Configure Tunnel", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
         // Terminal Output Screen
         LazyColumn(
             state = listState,
@@ -401,7 +431,7 @@ private fun ActiveSessionTerminalView(
             }
         }
 
-        // Accessory Keys Row
+        // Full Accessory Keys Row (ESC, TAB, CTRL, ALT, Arrow keys ↑↓←→, Macros)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -409,37 +439,104 @@ private fun ActiveSessionTerminalView(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf("Ctrl+C", "Ctrl+D", "Tab", "Esc", "Clear", "ls -la", "htop", "tmux ls").forEach { keyText ->
+            // ESC
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { manager.sendCommand("\u001b") }
+            ) {
+                Text("ESC", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.primary)
+            }
+
+            // TAB
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { manager.sendCommand("\t") }
+            ) {
+                Text("TAB", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+            }
+
+            // CTRL Modifier Toggle
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = if (isCtrlActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { isCtrlActive = !isCtrlActive }
+            ) {
+                Text("CTRL", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = if (isCtrlActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+            }
+
+            // ALT Modifier Toggle
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = if (isAltActive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { isAltActive = !isAltActive }
+            ) {
+                Text("ALT", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = if (isAltActive) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurface)
+            }
+
+            // Arrow Keys: Up, Down, Left, Right
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { manager.sendCommand("\u001b[A") }
+            ) {
+                Text("↑", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+            }
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { manager.sendCommand("\u001b[B") }
+            ) {
+                Text("↓", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+            }
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { manager.sendCommand("\u001b[D") }
+            ) {
+                Text("←", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+            }
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { manager.sendCommand("\u001b[C") }
+            ) {
+                Text("→", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+            }
+
+            // Control Combos & Macros
+            listOf("Ctrl+C" to "\u0003", "Ctrl+D" to "\u0004", "Ctrl+Z" to "\u001a", "Clear" to "CLEAR").forEach { (label, code) ->
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier.clickable {
-                        when (keyText) {
-                            "Ctrl+C" -> manager.sendCommand("\u0003")
-                            "Ctrl+D" -> manager.sendCommand("\u0004")
-                            "Tab" -> manager.sendCommand("\t")
-                            "Esc" -> manager.sendCommand("\u001b")
-                            "Clear" -> manager.clearOutput()
-                            else -> manager.sendCommand("$keyText\n")
-                        }
+                        if (code == "CLEAR") manager.clearOutput()
+                        else manager.sendCommand(code)
                     }
                 ) {
-                    Text(
-                        text = keyText,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Text(label, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+
+            listOf("ls -la", "htop", "tmux ls").forEach { cmd ->
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.clickable { manager.sendCommand("$cmd\n") }
+                ) {
+                    Text(cmd, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
 
-        // Command Input Field
+        // Command Input Field with bottom NavigationBar and IME keyboard padding
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
         ) {
             Row(
                 modifier = Modifier
@@ -462,7 +559,17 @@ private fun ActiveSessionTerminalView(
                     keyboardActions = KeyboardActions(
                         onSend = {
                             if (inputCommand.isNotBlank()) {
-                                manager.sendCommand("$inputCommand\n")
+                                val toSend = when {
+                                    isCtrlActive && inputCommand.length == 1 -> {
+                                        val c = inputCommand.first().uppercaseChar()
+                                        if (c in 'A'..'Z') (c.code - 64).toChar().toString() else inputCommand
+                                    }
+                                    isAltActive -> "\u001b$inputCommand"
+                                    else -> "$inputCommand\n"
+                                }
+                                isCtrlActive = false
+                                isAltActive = false
+                                manager.sendCommand(toSend)
                                 inputCommand = ""
                             }
                         }
@@ -481,7 +588,17 @@ private fun ActiveSessionTerminalView(
                 IconButton(
                     onClick = {
                         if (inputCommand.isNotBlank()) {
-                            manager.sendCommand("$inputCommand\n")
+                            val toSend = when {
+                                isCtrlActive && inputCommand.length == 1 -> {
+                                    val c = inputCommand.first().uppercaseChar()
+                                    if (c in 'A'..'Z') (c.code - 64).toChar().toString() else inputCommand
+                                }
+                                isAltActive -> "\u001b$inputCommand"
+                                else -> "$inputCommand\n"
+                            }
+                            isCtrlActive = false
+                            isAltActive = false
+                            manager.sendCommand(toSend)
                             inputCommand = ""
                         }
                     }

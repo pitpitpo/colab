@@ -69,6 +69,24 @@ fun createPaletteColorScheme(
         )
     }
 
+    if (!darkTheme) {
+        return lightColorScheme(
+            primary = primary,
+            onPrimary = onPrimaryContainer,
+            primaryContainer = primaryContainer,
+            onPrimaryContainer = onPrimary,
+            background = Color(0xFFFBFDF8),
+            surface = Color(0xFFFBFDF8),
+            surfaceContainerLowest = Color(0xFFFFFFFF),
+            surfaceContainerLow = Color(0xFFF5F7F2),
+            surfaceContainer = Color(0xFFEFF1EC),
+            surfaceContainerHigh = Color(0xFFE9EBE6),
+            surfaceContainerHighest = Color(0xFFE3E5E0),
+            outline = Color(0xFF72796F),
+            outlineVariant = Color(0xFFC2C9BD)
+        )
+    }
+
     val bg = if (pureBlack) Color(0xFF000000) else Color(0xFF0F0F0F)
     return DarkColorScheme.copy(
         primary = primary,

@@ -1,11 +1,13 @@
 package com.pox.colab.ui.vmdetails
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,7 +52,7 @@ import com.pox.colab.model.VMStatus
 import com.pox.colab.theme.ColabOrange
 import com.pox.colab.ui.home.StatusIndicatorDot
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun VMDetailsScreen(
     vmId: String,
@@ -177,6 +179,7 @@ fun VMDetailsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .navigationBarsPadding()
         ) {
             // Material 3 PrimaryTabRow: 1 Dashboard, 2 Console, 3 File Manager
             val pagerScope = rememberCoroutineScope()
@@ -241,7 +244,7 @@ fun VMDetailsScreen(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.weight(1f),
-                beyondViewportPageCount = 2,
+                beyondBoundsPageCount = 2,
                 userScrollEnabled = false
             ) { page ->
                 when (page) {

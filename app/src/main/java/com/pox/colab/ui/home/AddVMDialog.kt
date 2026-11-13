@@ -162,6 +162,7 @@ fun AddVMDialog(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text("Instance: $defaultName", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                Text("Root Password: $defaultPassword", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                 Text("Hardware: NVIDIA T4 Tensor Core", fontSize = 12.sp)
                                 Text("Tunnel: Cloudflare Quick Tunnel", fontSize = 12.sp)
                                 Text("Shell: tmux Anti-Disconnect SSH", fontSize = 12.sp)
