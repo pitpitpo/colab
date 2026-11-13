@@ -21,8 +21,12 @@ import kotlinx.coroutines.launch
 
 class VMRepository(
     private val preferences: AppPreferences,
+    private val context: Context? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
+    private val appContext: Context?
+        get() = context ?: try { com.pox.colab.ColabApp.instance } catch (_: Exception) { null }
+
     private val _accounts = MutableStateFlow<List<ColabAccount>>(emptyList())
     val accounts: StateFlow<List<ColabAccount>> = _accounts.asStateFlow()
 
@@ -54,13 +58,27 @@ class VMRepository(
         email: String,
         displayName: String,
         tokenOrCookie: String,
-        tier: String
+        tier: String,
+        oauthToken: String = tokenOrCookie
     ): ColabAccount {
+        // Extract raw token string if tokenOrCookie is serialized JSON
+        val cleanToken = if (tokenOrCookie.trim().startsWith("{")) {
+            try {
+                org.json.JSONObject(tokenOrCookie).optString("token", "").ifBlank {
+                    org.json.JSONObject(tokenOrCookie).optString("access_token", tokenOrCookie)
+                }
+            } catch (_: Exception) {
+                tokenOrCookie
+            }
+        } else {
+            tokenOrCookie
+        }
+
         val account = ColabAccount(
             email = email,
             displayName = displayName.ifEmpty { email.substringBefore("@") },
-            tokenOrCookie = tokenOrCookie,
-            oauthToken = tokenOrCookie,
+            tokenOrCookie = cleanToken,
+            oauthToken = oauthToken,
             tier = tier,
             isActive = _accounts.value.isEmpty()
         )
@@ -121,9 +139,10 @@ class VMRepository(
         preferences.saveAccounts(updated)
 
         val target = updated.find { it.id == id }
-        if (target != null && context != null) {
+        val ctx = context ?: appContext
+        if (target != null && ctx != null) {
             scope.launch {
-                AlpineAppContainerManager.getInstance(context).updateAccountStatus(id, isEnabled, target.tier)
+                AlpineAppContainerManager.getInstance(ctx).updateAccountStatus(id, isEnabled, target.tier)
             }
         }
     }
@@ -135,9 +154,10 @@ class VMRepository(
         preferences.saveAccounts(updated)
 
         val target = updated.find { it.id == id }
-        if (target != null && context != null) {
+        val ctx = context ?: appContext
+        if (target != null && ctx != null) {
             scope.launch {
-                AlpineAppContainerManager.getInstance(context).updateAccountStatus(id, target.isEnabled, tier)
+                AlpineAppContainerManager.getInstance(ctx).updateAccountStatus(id, target.isEnabled, tier)
             }
         }
     }
@@ -207,7 +227,12 @@ class VMRepository(
 
     fun updateMetrics(vmId: String, metrics: VMMetrics) {
         _vms.update { current ->
-            current.map { if (it.id == vmId) it.copy(metrics = metrics) else it }
+            current.map {
+                if (it.id == vmId) {
+                    val derivedStatus = if (metrics.timestamp > 0L && it.status != VMStatus.TERMINATED) VMStatus.RUNNING else it.status
+                    it.copy(metrics = metrics, status = derivedStatus)
+                } else it
+            }
         }
     }
 

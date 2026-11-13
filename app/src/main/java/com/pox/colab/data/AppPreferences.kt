@@ -31,7 +31,8 @@ class AppPreferences(context: Context) {
     val consoleBackgroundFlow: StateFlow<String> = _consoleBackgroundFlow.asStateFlow()
 
     fun loadAccounts(): List<ColabAccount> {
-        val json = prefs.getString("accounts_json", null) ?: return emptyList()
+        val raw = prefs.getString("accounts_json", null) ?: return emptyList()
+        val json = com.pox.colab.util.CryptoUtil.decrypt(raw)
         return try {
             val type = object : TypeToken<List<ColabAccount>>() {}.type
             gson.fromJson(json, type) ?: emptyList()
@@ -41,7 +42,9 @@ class AppPreferences(context: Context) {
     }
 
     fun saveAccounts(accounts: List<ColabAccount>) {
-        prefs.edit().putString("accounts_json", gson.toJson(accounts)).apply()
+        val json = gson.toJson(accounts)
+        val encrypted = com.pox.colab.util.CryptoUtil.encrypt(json)
+        prefs.edit().putString("accounts_json", encrypted).apply()
     }
 
     fun getActiveAccountId(): String? = prefs.getString("active_account_id", null)
@@ -51,7 +54,8 @@ class AppPreferences(context: Context) {
     }
 
     fun loadVMs(): List<ColabVM> {
-        val json = prefs.getString("vms_json", null) ?: return emptyList()
+        val raw = prefs.getString("vms_json", null) ?: return emptyList()
+        val json = com.pox.colab.util.CryptoUtil.decrypt(raw)
         return try {
             val type = object : TypeToken<List<ColabVM>>() {}.type
             gson.fromJson(json, type) ?: emptyList()
@@ -61,7 +65,9 @@ class AppPreferences(context: Context) {
     }
 
     fun saveVMs(vms: List<ColabVM>) {
-        prefs.edit().putString("vms_json", gson.toJson(vms)).apply()
+        val json = gson.toJson(vms)
+        val encrypted = com.pox.colab.util.CryptoUtil.encrypt(json)
+        prefs.edit().putString("vms_json", encrypted).apply()
     }
 
     fun isDarkMode(): Boolean = prefs.getBoolean("dark_mode", true)

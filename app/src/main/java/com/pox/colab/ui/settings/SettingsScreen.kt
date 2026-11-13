@@ -593,8 +593,8 @@ fun SettingsScreen(
         if (showSignInDialog) {
             SignInAccountDialog(
                 onDismiss = { showSignInDialog = false },
-                onConfirm = { email, name, token, tier ->
-                    repository.addAccount(context, email, name, token, tier)
+                onConfirm = { email, name, accessToken, tier, tokenJson ->
+                    repository.addAccount(context, email, name, accessToken, tier, tokenJson)
                     showSignInDialog = false
                     Toast.makeText(context, "Account connected & CLI instance initialized in Alpine", Toast.LENGTH_SHORT).show()
                 }
@@ -655,7 +655,7 @@ private fun isVersionNewer(latest: String, current: String): Boolean {
 @Composable
 fun SignInAccountDialog(
     onDismiss: () -> Unit,
-    onConfirm: (email: String, name: String, token: String, tier: String) -> Unit
+    onConfirm: (email: String, name: String, accessToken: String, tier: String, tokenJson: String) -> Unit
 ) {
     val context = LocalContext.current
     var authSession by remember { mutableStateOf(com.pox.colab.engine.AlpineAppContainerManager.getInstance(context).createInstanceAndGenerateAuthLink()) }
@@ -822,7 +822,7 @@ fun SignInAccountDialog(
                     scope.launch {
                         try {
                             val profile = com.pox.colab.engine.ColabAuthEngine.exchangeCodeForProfile(authCode, authSession)
-                            onConfirm(profile.email, profile.displayName, profile.tokenJson.ifBlank { profile.accessToken }, profile.tier)
+                            onConfirm(profile.email, profile.displayName, profile.accessToken, profile.tier, profile.tokenJson)
                         } catch (e: Exception) {
                             authError = e.message ?: "Authentication failed"
                         } finally {

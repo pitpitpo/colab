@@ -14,7 +14,7 @@ class ColabApp : Application() {
         super.onCreate()
         instance = this
         preferences = AppPreferences(this)
-        repository = VMRepository(preferences)
+        repository = VMRepository(preferences, this)
     }
 
     companion object {
