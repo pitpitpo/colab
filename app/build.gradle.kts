@@ -83,6 +83,8 @@ dependencies {
     // Real org.json for JVM unit tests: the mockable android.jar stubs every method, which
     // silently disabled telemetry/token parsing coverage.
     testImplementation("org.json:json:20231013")
+    // MockWebServer for ColabApiEngine HTTP-layer unit tests
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
