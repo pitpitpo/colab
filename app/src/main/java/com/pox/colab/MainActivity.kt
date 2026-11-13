@@ -32,21 +32,26 @@ import com.pox.colab.ui.navigation.Screen
 import com.pox.colab.ui.settings.SettingsScreen
 import com.pox.colab.ui.vmdetails.VMDetailsScreen
 
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.runtime.collectAsState
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val app = application as ColabApp
 
         setContent {
-            val isDynamic = app.preferences.isDynamicColorEnabled()
-            val isDark = app.preferences.isDarkMode()
-            val isPureBlack = app.preferences.isPureBlack()
-            val palette = app.preferences.getSelectedPalette()
+            val isDynamic by app.preferences.isDynamicColorFlow.collectAsState()
+            val isDark by app.preferences.isDarkModeFlow.collectAsState()
+            val isPureBlack by app.preferences.isPureBlackFlow.collectAsState()
+            val palette by app.preferences.selectedPaletteFlow.collectAsState()
 
             ColabTheme(
                 darkTheme = isDark,
                 dynamicColor = isDynamic,
-                palette = palette,
+                selectedPalette = palette,
                 pureBlack = isPureBlack
             ) {
                 Surface(
@@ -72,6 +77,7 @@ fun ColabAppNavHost(app: ColabApp) {
     val isTopLevelDestination = currentRoute == Screen.Home.route || currentRoute == Screen.Settings.route
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (isTopLevelDestination) {
                 NavigationBar(

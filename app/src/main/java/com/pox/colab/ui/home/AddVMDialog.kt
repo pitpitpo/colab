@@ -190,6 +190,47 @@ fun AddVMDialog(
                                 shape = RoundedCornerShape(12.dp)
                             )
 
+                            // Account selector in Advanced Mode
+                            if (accounts.isNotEmpty()) {
+                                val currentAcc = accounts.find { it.id == selectedAccountId } ?: accounts.first()
+                                Column {
+                                    Text("Colab Account", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    ExposedDropdownMenuBox(
+                                        expanded = accountDropdownExpanded,
+                                        onExpandedChange = { accountDropdownExpanded = it }
+                                    ) {
+                                        OutlinedTextField(
+                                            value = "${currentAcc.displayName} (${currentAcc.email})",
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountDropdownExpanded) },
+                                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        ExposedDropdownMenu(
+                                            expanded = accountDropdownExpanded,
+                                            onDismissRequest = { accountDropdownExpanded = false }
+                                        ) {
+                                            accounts.forEach { acc ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Column {
+                                                            Text(acc.displayName, fontWeight = FontWeight.SemiBold)
+                                                            Text(acc.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        selectedAccountId = acc.id
+                                                        accountDropdownExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // Hardware Accelerator selector chips
                             Text("Hardware Accelerator", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -198,6 +239,18 @@ fun AddVMDialog(
                                         selected = selectedAccelerator == acc,
                                         onClick = { selectedAccelerator = acc },
                                         label = { Text(acc.name, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
+                            // Resilience Protocol selector chips
+                            Text("Shell Resilience Protocol", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(ResilientProtocol.TMUX_SSH, ResilientProtocol.MOSH_UDP).forEach { proto ->
+                                    FilterChip(
+                                        selected = selectedProtocol == proto,
+                                        onClick = { selectedProtocol = proto },
+                                        label = { Text(if (proto == ResilientProtocol.TMUX_SSH) "tmux SSH" else "Mosh UDP", fontSize = 11.sp) }
                                     )
                                 }
                             }

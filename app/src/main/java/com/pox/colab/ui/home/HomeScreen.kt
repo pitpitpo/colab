@@ -63,6 +63,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import com.pox.colab.ui.component.shimmer.GridItemPlaceholder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -99,6 +100,7 @@ fun HomeScreen(
     val vms by repository.vms.collectAsState()
     val accounts by repository.accounts.collectAsState()
     val activeAccount by repository.activeAccount.collectAsState()
+    val isLoading by repository.isLoading.collectAsState()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var accountMenuExpanded by remember { mutableStateOf(false) }
@@ -254,7 +256,11 @@ fun HomeScreen(
                 }
             }
 
-            if (filteredVms.isEmpty()) {
+            if (isLoading) {
+                items(2) {
+                    GridItemPlaceholder()
+                }
+            } else if (filteredVms.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     M3EmptyState(
                         hasAccounts = accounts.isNotEmpty(),

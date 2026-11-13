@@ -31,10 +31,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -113,8 +116,12 @@ fun SSHTab(
     var activeSessionId by remember { mutableStateOf(sessions.firstOrNull()?.id ?: "") }
     val currentSession = sessions.find { it.id == activeSessionId } ?: sessions.firstOrNull()
 
-    // Retrieve active terminal background color
-    val consoleBgColor = resolveConsoleBackground(preferences.getConsoleBgForVM(vm.id))
+    // Retrieve active terminal background color with per-terminal support
+    var termBgKey by remember(vm.id, activeSessionId) {
+        mutableStateOf(preferences.getConsoleBgForTerminal(vm.id, activeSessionId))
+    }
+    val consoleBgColor = resolveConsoleBackground(termBgKey)
+    var showBgMenu by remember { mutableStateOf(false) }
 
     // Handle auto-connection for initial session
     LaunchedEffect(currentSession?.id) {
@@ -241,6 +248,60 @@ fun SSHTab(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)
                     )
+                }
+
+                // Per-terminal background tone selector
+                Box {
+                    IconButton(
+                        onClick = { showBgMenu = true },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = "Terminal Background",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showBgMenu,
+                        onDismissRequest = { showBgMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Inherit VM Default", fontSize = 13.sp) },
+                            onClick = {
+                                val vmDefault = preferences.getConsoleBgForVM(vm.id)
+                                preferences.setConsoleBgForTerminal(vm.id, activeSessionId, vmDefault)
+                                termBgKey = vmDefault
+                                showBgMenu = false
+                            }
+                        )
+                        listOf(
+                            "amoled_black" to "AMOLED Pure Black",
+                            "deep_charcoal" to "Deep Charcoal",
+                            "navy_terminal" to "Navy Terminal",
+                            "matrix_dark" to "Matrix Dark",
+                            "monokai_dark" to "Monokai Dark"
+                        ).forEach { (key, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label, fontSize = 13.sp) },
+                                leadingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clip(CircleShape)
+                                            .background(resolveConsoleBackground(key))
+                                    )
+                                },
+                                onClick = {
+                                    preferences.setConsoleBgForTerminal(vm.id, activeSessionId, key)
+                                    termBgKey = key
+                                    showBgMenu = false
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }

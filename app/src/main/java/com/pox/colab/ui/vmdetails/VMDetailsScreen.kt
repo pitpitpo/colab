@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cable
@@ -172,6 +176,13 @@ fun VMDetailsScreen(
                 .padding(innerPadding)
         ) {
             // Material 3 PrimaryTabRow: 1 Dashboard, 2 Console, 3 File Manager
+            val pagerScope = rememberCoroutineScope()
+            val pagerState = rememberPagerState(initialPage = initialTab.coerceIn(0, 2), pageCount = { 3 })
+
+            androidx.compose.runtime.LaunchedEffect(pagerState.currentPage) {
+                selectedTabIndex = pagerState.currentPage
+            }
+
             PrimaryTabRow(
                 selectedTabIndex = selectedTabIndex,
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -179,7 +190,10 @@ fun VMDetailsScreen(
             ) {
                 Tab(
                     selected = selectedTabIndex == 0,
-                    onClick = { selectedTabIndex = 0 },
+                    onClick = {
+                        selectedTabIndex = 0
+                        pagerScope.launch { pagerState.animateScrollToPage(0) }
+                    },
                     text = { Text("Dashboard", maxLines = 1, fontSize = 13.sp) },
                     icon = {
                         Icon(
@@ -191,7 +205,10 @@ fun VMDetailsScreen(
                 )
                 Tab(
                     selected = selectedTabIndex == 1,
-                    onClick = { selectedTabIndex = 1 },
+                    onClick = {
+                        selectedTabIndex = 1
+                        pagerScope.launch { pagerState.animateScrollToPage(1) }
+                    },
                     text = { Text("Console", maxLines = 1, fontSize = 13.sp) },
                     icon = {
                         Icon(
@@ -203,7 +220,10 @@ fun VMDetailsScreen(
                 )
                 Tab(
                     selected = selectedTabIndex == 2,
-                    onClick = { selectedTabIndex = 2 },
+                    onClick = {
+                        selectedTabIndex = 2
+                        pagerScope.launch { pagerState.animateScrollToPage(2) }
+                    },
                     text = { Text("File Manager", maxLines = 1, fontSize = 13.sp) },
                     icon = {
                         Icon(
@@ -215,8 +235,13 @@ fun VMDetailsScreen(
                 )
             }
 
-            Box(modifier = Modifier.weight(1f)) {
-                when (selectedTabIndex) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f),
+                beyondViewportPageCount = 2,
+                userScrollEnabled = false
+            ) { page ->
+                when (page) {
                     0 -> DashboardTab(
                         vm = vm,
                         repository = repository,

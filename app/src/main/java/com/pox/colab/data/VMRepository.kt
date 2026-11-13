@@ -32,6 +32,9 @@ class VMRepository(
     private val _vms = MutableStateFlow<List<ColabVM>>(emptyList())
     val vms: StateFlow<List<ColabVM>> = _vms.asStateFlow()
 
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
     init {
         loadData()
     }
