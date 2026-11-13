@@ -161,14 +161,14 @@ fun DashboardTab(
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = if (hasTunnel) TerminalGreen.copy(alpha = 0.12f) else ColabOrange.copy(alpha = 0.12f),
+                                color = if (hasTunnel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         imageVector = if (hasTunnel) Icons.Default.CheckCircle else Icons.Default.Warning,
                                         contentDescription = null,
-                                        tint = if (hasTunnel) TerminalGreen else ColabOrange,
+                                        tint = if (hasTunnel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }

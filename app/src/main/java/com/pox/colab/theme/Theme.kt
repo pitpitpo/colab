@@ -140,7 +140,7 @@ fun ColabTheme(
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val dyn = if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            if (pureBlack) {
+            if (darkTheme && pureBlack) {
                 dyn.copy(
                     background = Color(0xFF000000),
                     surface = Color(0xFF000000),

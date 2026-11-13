@@ -97,7 +97,7 @@ fun SettingsScreen(
     var latestRelease by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
     var updateCheckError by remember { mutableStateOf<String?>(null) }
 
-    val currentAppVersion = "v1.0.0"
+    val currentAppVersion = "v${com.pox.colab.BuildConfig.VERSION_NAME}"
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -263,7 +263,10 @@ fun SettingsScreen(
                                                 selected = acc.tier.equals("Pro", ignoreCase = true),
                                                 onClick = { repository.updateAccountTier(acc.id, "Pro", context) },
                                                 label = { Text("Pro", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ColabOrange.copy(alpha = 0.25f), selectedLabelColor = ColabOrange)
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
                                             )
                                             FilterChip(
                                                 selected = !acc.tier.equals("Pro", ignoreCase = true),
@@ -442,15 +445,22 @@ fun SettingsScreen(
                                                 val clr = resolveConsoleBackground(bgKey)
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(24.dp)
+                                                        .size(48.dp)
                                                         .clip(CircleShape)
-                                                        .background(clr)
-                                                        .border(if (isCur) 2.dp else 1.dp, if (isCur) MaterialTheme.colorScheme.primary else Color.DarkGray, CircleShape)
                                                         .clickable {
                                                             vmBg = bgKey
                                                             preferences.setConsoleBgForVM(vm.id, bgKey)
-                                                        }
-                                                )
+                                                        },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(24.dp)
+                                                            .clip(CircleShape)
+                                                            .background(clr)
+                                                            .border(if (isCur) 2.dp else 1.dp, if (isCur) MaterialTheme.colorScheme.primary else Color.DarkGray, CircleShape)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -602,6 +612,9 @@ private suspend fun fetchGitHubRelease(): GitHubReleaseInfo = withContext(Dispat
         .build()
 
     client.newCall(request).execute().use { response ->
+        if (!response.isSuccessful) {
+            throw java.io.IOException("HTTP ${response.code}: ${response.message}")
+        }
         val body = response.body?.string() ?: throw IllegalStateException("Empty response")
         val obj = Gson().fromJson(body, JsonObject::class.java)
         val tag = obj.get("tag_name")?.asString ?: "latest"

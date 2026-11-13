@@ -114,7 +114,7 @@ fun HomeScreen(
     }
 
     Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             TopAppBar(
                 title = {
@@ -428,7 +428,7 @@ fun VMGridCard(
                 }
 
                 Box {
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
@@ -458,7 +458,7 @@ fun VMGridCard(
                     shape = RoundedCornerShape(10.dp),
                     colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                     border = null,
-                    modifier = Modifier.height(30.dp)
+                    modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                 )
 
                 AssistChip(
@@ -468,7 +468,7 @@ fun VMGridCard(
                     shape = RoundedCornerShape(10.dp),
                     colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                     border = null,
-                    modifier = Modifier.height(30.dp)
+                    modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                 )
             }
 
@@ -531,7 +531,7 @@ fun StatusIndicatorDot(status: VMStatus) {
     val color = when (status) {
         VMStatus.RUNNING -> TerminalGreen
         VMStatus.STARTING -> TerminalYellow
-        VMStatus.RECONNECTING -> ColabOrange
+        VMStatus.RECONNECTING -> MaterialTheme.colorScheme.tertiary
         VMStatus.STOPPED -> MaterialTheme.colorScheme.outline
         VMStatus.ERROR -> MaterialTheme.colorScheme.error
     }

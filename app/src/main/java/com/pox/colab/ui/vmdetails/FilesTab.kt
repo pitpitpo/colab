@@ -148,15 +148,15 @@ fun FilesTab(
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = ColabOrange.copy(alpha = 0.15f),
-                            modifier = Modifier.size(32.dp)
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Cable,
                                     contentDescription = null,
-                                    tint = ColabOrange,
-                                    modifier = Modifier.size(16.dp)
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -170,10 +170,14 @@ fun FilesTab(
                     Button(
                         onClick = onConfigureTunnel,
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ColabOrange)
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                     ) {
-                        Text("Set Host", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Set Host", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

@@ -149,7 +149,7 @@ fun VMDetailsScreen(
                         Icon(
                             imageVector = Icons.Default.Cable,
                             contentDescription = "Configure Tunnel Endpoint",
-                            tint = if (hasHost) ColabOrange else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (hasHost) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -244,7 +244,7 @@ fun VMDetailsScreen(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.weight(1f),
-                beyondBoundsPageCount = 2,
+                beyondBoundsPageCount = 0,
                 userScrollEnabled = false
             ) { page ->
                 when (page) {

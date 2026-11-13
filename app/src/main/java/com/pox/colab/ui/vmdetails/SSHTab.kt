@@ -1,6 +1,5 @@
 package com.pox.colab.ui.vmdetails
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,13 +36,12 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -76,7 +75,6 @@ import com.pox.colab.engine.SSHConnectionState
 import com.pox.colab.service.SSHBackgroundService
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.VMMetrics
-import com.pox.colab.theme.ColabOrange
 import com.pox.colab.theme.TerminalCyan
 import com.pox.colab.theme.TerminalForeground
 import com.pox.colab.theme.TerminalGreen
@@ -195,33 +193,49 @@ fun SSHTab(
                             shape = RoundedCornerShape(10.dp),
                             color = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
                             border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)) else null,
-                            modifier = Modifier.clickable { activeSessionId = session.id }
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 48.dp)
+                                .clickable(role = Role.Tab) { activeSessionId = session.id }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(start = 12.dp, end = if (sessions.size > 1) 4.dp else 12.dp, top = 4.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                val stateLabel = when (sessionState) {
+                                    SSHConnectionState.CONNECTED -> "Online"
+                                    SSHConnectionState.CONNECTING -> "Connecting"
+                                    SSHConnectionState.RECONNECTING -> "Reconnecting"
+                                    SSHConnectionState.DISCONNECTED -> "Offline"
+                                    SSHConnectionState.ERROR -> "Error"
+                                }
                                 Box(
                                     modifier = Modifier
-                                        .size(7.dp)
+                                        .size(8.dp)
                                         .clip(CircleShape)
                                         .background(tabStateColor)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = session.title,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Column {
+                                    Text(
+                                        text = session.title,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = stateLabel,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = tabStateColor
+                                    )
+                                }
 
                                 if (sessions.size > 1) {
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Box(
                                         modifier = Modifier
-                                            .size(28.dp)
+                                            .size(48.dp)
                                             .clip(CircleShape)
-                                            .clickable {
+                                            .clickable(role = Role.Button) {
                                                 session.manager.disconnect()
                                                 val idx = sessions.indexOf(session)
                                                 sessions.remove(session)
@@ -233,9 +247,9 @@ fun SSHTab(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Close,
-                                            contentDescription = "Close tab",
+                                            contentDescription = "Close ${session.title}",
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(14.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
@@ -365,8 +379,11 @@ private fun ActiveSessionTerminalView(
     val listState = rememberLazyListState()
 
     LaunchedEffect(terminalLines.size) {
-        if (terminalLines.isNotEmpty()) {
-            listState.scrollToItem(terminalLines.lastIndex)
+        if (terminalLines.isNotEmpty() && !listState.isScrollInProgress) {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (lastVisible >= terminalLines.size - 3) {
+                listState.scrollToItem(terminalLines.lastIndex)
+            }
         }
     }
 
@@ -428,10 +445,14 @@ private fun ActiveSessionTerminalView(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TextButton(onClick = onConfigureTunnel, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
-                        Icon(Icons.Default.Cable, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Configure Tunnel", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    TextButton(
+                        onClick = onConfigureTunnel,
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.Cable, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Configure Tunnel", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -471,91 +492,131 @@ private fun ActiveSessionTerminalView(
         ) {
             // ESC
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.clickable { manager.sendCommand("\u001b") }
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button) { manager.sendCommand("\u001b") }
             ) {
-                Text("ESC", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.primary)
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("ESC", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
             }
 
             // TAB
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.clickable { manager.sendCommand("\t") }
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button) { manager.sendCommand("\t") }
             ) {
-                Text("TAB", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("TAB", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
 
             // CTRL Modifier Toggle
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = if (isCtrlActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.clickable { isCtrlActive = !isCtrlActive }
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button) { isCtrlActive = !isCtrlActive }
             ) {
-                Text("CTRL", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = if (isCtrlActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("CTRL", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isCtrlActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                }
             }
 
             // ALT Modifier Toggle
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = if (isAltActive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.clickable { isAltActive = !isAltActive }
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button) { isAltActive = !isAltActive }
             ) {
-                Text("ALT", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = if (isAltActive) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurface)
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("ALT", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isAltActive) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurface)
+                }
             }
 
             // Arrow Keys: Up, Down, Left, Right
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.clickable { manager.sendCommand("\u001b[A") }
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button) { manager.sendCommand("\u001b[A") }
             ) {
-                Text("↑", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("↑", fontFamily = FontFamily.Monospace, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.clickable { manager.sendCommand("\u001b[B") }
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button) { manager.sendCommand("\u001b[B") }
             ) {
-                Text("↓", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("↓", fontFamily = FontFamily.Monospace, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.clickable { manager.sendCommand("\u001b[D") }
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button) { manager.sendCommand("\u001b[D") }
             ) {
-                Text("←", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("←", fontFamily = FontFamily.Monospace, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.clickable { manager.sendCommand("\u001b[C") }
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button) { manager.sendCommand("\u001b[C") }
             ) {
-                Text("→", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("→", fontFamily = FontFamily.Monospace, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
 
             // Control Combos & Macros
             listOf("Ctrl+C" to "\u0003", "Ctrl+D" to "\u0004", "Ctrl+Z" to "\u001a", "Clear" to "CLEAR").forEach { (label, code) ->
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.clickable {
-                        if (code == "CLEAR") manager.clearOutput()
-                        else manager.sendCommand(code)
-                    }
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                        .clickable(role = Role.Button) {
+                            if (code == "CLEAR") manager.clearOutput()
+                            else manager.sendCommand(code)
+                        }
                 ) {
-                    Text(label, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurface)
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        Text(label, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    }
                 }
             }
 
             listOf("ls -la", "htop", "tmux ls").forEach { cmd ->
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.clickable { manager.sendCommand("$cmd\n") }
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                        .clickable(role = Role.Button) { manager.sendCommand("$cmd\n") }
                 ) {
-                    Text(cmd, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        Text(cmd, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
