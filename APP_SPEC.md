@@ -104,17 +104,22 @@ reference_apps:
 
 ---
 
-## 4. Alpine Linux Execution Layer
+## 4. Internal Alpine Linux Container & Colab CLI Layer
 * **Architecture**:
-  * **Alpine is the host/controller execution layer**: Alpine Linux runs the `google-colab-cli` and orchestration tools directly. It is **NOT** inside Google Colab; rather, Alpine is the platform layer that spins up, connects to, authenticates, and manages multiple remote Google Colab runtime instances.
+  * **Embedded in the App Itself**: The app hosts a minimal Alpine Linux container environment internally on the device/app runtime.
+  * **CLI Multi-Tenancy (One Container, Multi-CLI)**:
+    * The single Alpine container acts as the local controller running the Colab CLI environment.
+    * For **each connected Colab account**, a dedicated Colab CLI instance/environment is spawned inside this internal Alpine container.
   * **Instance & Auth Management**:
-    * Each "Add Account" action triggers an instance inside the Alpine layer running the Colab CLI PKCE OAuth workflow (`colab auth login`), generating the Google authorization link for the user.
-    * Once authenticated, the Alpine Colab CLI manages credentials, tokens, and compute quotas across all connected accounts.
+    * Pressing "Add Account" in Settings initializes a new CLI instance inside the internal Alpine container.
+    * The CLI instance initiates the OAuth PKCE flow (`colab auth login`) to generate the Google authorization link and passes it back to the user.
+    * Each account's CLI instance maintains isolated credentials, manages its respective Colab instances, and controls compute quotas/auth tokens.
   * **Automatic Upgrades**:
-    * Automatically keeps its environment up to date on boot:
+    * Automatically updates packages and CLI tools inside the Alpine container on startup:
       ```sh
       apk update && apk upgrade && pip install --upgrade --no-cache-dir google-colab-cli tmux openssh
       ```
   * **Resilient Connection**:
     * Persistent `tmux` session daemon with keep-alive (`ClientAliveInterval 10`, `TCPKeepAlive yes`), resilient against network disconnections.
+
 
