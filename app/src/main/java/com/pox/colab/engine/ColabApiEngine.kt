@@ -2,12 +2,17 @@ package com.pox.colab.engine
 
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.HardwareAccelerator
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -175,36 +180,83 @@ class ColabApiEngine(
         authUser: Int = 0
     ): Result<ColabRuntime> = withContext(Dispatchers.IO) {
         try {
-            val requestBody = JSONObject().apply {
-                put("assign_request", JSONObject().apply {
-                    put("hardwareAccelerator", accelerator.apiValue)
-                    put("sessionIdSuffix", "mobile_${System.currentTimeMillis()}")
-                    put("numGpus", if (accelerator == ColabAccelerator.NONE) 0 else 1)
-                })
-            }.toString().toRequestBody(JSON_MEDIA_TYPE)
+            val cleanToken = if (bearerToken.trim().startsWith("{")) {
+                try {
+                    val json = JSONObject(bearerToken.trim())
+                    json.optString("token", "").ifBlank {
+                        json.optString("access_token", bearerToken.trim())
+                    }
+                } catch (_: Exception) {
+                    bearerToken.trim()
+                }
+            } else bearerToken.trim()
 
-            val request = Request.Builder()
-                .url("$ASSIGN_URL?authuser=$authUser")
-                .post(requestBody)
-                .header("Authorization", "Bearer $bearerToken")
+            val nbh = uuidToWebSafeBase64(UUID.randomUUID())
+            val assignUrl = if (accelerator == ColabAccelerator.NONE) {
+                "$ASSIGN_URL?nbh=$nbh&authuser=$authUser"
+            } else {
+                "$ASSIGN_URL?nbh=$nbh&accelerator=${accelerator.apiValue}&authuser=$authUser"
+            }
+
+            // Step 1: Pre-check / GET assignment to acquire authentic XSRF token or check active instance
+            val getRequest = Request.Builder()
+                .url(assignUrl)
+                .get()
+                .header("Authorization", "Bearer $cleanToken")
                 .header("Accept", "application/json")
-                .header("Content-Type", "application/json")
-                .header("X-Colab-Client-Agent", "colab-android-client/1.0")
+                .header("X-Colab-Client-Agent", "colab-cli")
                 .header("Origin", COLAB_BASE)
                 .header("Referer", "$COLAB_BASE/")
                 .build()
 
-            client.newCall(request).execute().use { response ->
-                val rawBody = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
-                    val errMsg = extractErrorMessage(rawBody)
+            client.newCall(getRequest).execute().use { getResp ->
+                val getRaw = getResp.body?.string() ?: ""
+                if (!getResp.isSuccessful) {
+                    val errMsg = extractErrorMessage(getRaw)
                     return@withContext Result.failure(
-                        Exception("Colab runtime allocation failed (HTTP ${response.code}): $errMsg")
+                        Exception("Colab runtime assignment pre-check failed (HTTP ${getResp.code}): $errMsg")
                     )
                 }
 
-                val body = stripXssiPrefix(rawBody)
-                Result.success(parseAssignResponse(body, rawBody))
+                val getBody = stripXssiPrefix(getRaw)
+                val getJson = try { JSONObject(getBody) } catch (_: Exception) { JSONObject() }
+
+                // If already assigned with endpoint & runtimeProxyInfo, return immediately
+                if (getJson.has("endpoint") && (getJson.has("runtimeProxyInfo") || getJson.has("runtime_proxy_info"))) {
+                    return@withContext Result.success(parseAssignResponse(getBody, getRaw))
+                }
+
+                val xsrfToken = getJson.optString("token", "")
+                if (xsrfToken.isBlank()) {
+                    return@withContext Result.failure(
+                        Exception("Colab assignment pre-check did not return XSRF token: $getRaw")
+                    )
+                }
+
+                // Step 2: POST allocation with X-Goog-Colab-Token to provision new VM runtime
+                val postRequest = Request.Builder()
+                    .url(assignUrl)
+                    .post("".toRequestBody(JSON_MEDIA_TYPE))
+                    .header("Authorization", "Bearer $cleanToken")
+                    .header("Accept", "application/json")
+                    .header("X-Colab-Client-Agent", "colab-cli")
+                    .header("X-Goog-Colab-Token", xsrfToken)
+                    .header("Origin", COLAB_BASE)
+                    .header("Referer", "$COLAB_BASE/")
+                    .build()
+
+                client.newCall(postRequest).execute().use { postResp ->
+                    val postRaw = postResp.body?.string() ?: ""
+                    if (!postResp.isSuccessful) {
+                        val errMsg = extractErrorMessage(postRaw)
+                        return@withContext Result.failure(
+                            Exception("Colab runtime allocation failed (HTTP ${postResp.code}): $errMsg")
+                        )
+                    }
+
+                    val postBody = stripXssiPrefix(postRaw)
+                    Result.success(parseAssignResponse(postBody, postRaw))
+                }
             }
         } catch (e: Exception) {
             Result.failure(Exception("allocateRuntime network error: ${e.message}", e))
@@ -212,12 +264,12 @@ class ColabApiEngine(
     }
 
     /**
-     * Runs [code] on the already-allocated [runtime] by POSTing a cell
-     * execution payload to `{endpointUrl}/execute`.
+     * Runs [code] on the allocated [runtime] via standard Jupyter Kernel protocol
+     * using WebSocket channel multiplexing.
      *
      * @param bearerToken  Google OAuth2 access token.
      * @param runtime      A runtime previously returned by [allocateRuntime].
-     * @param code         Python code (or shell commands via `!`) to execute.
+     * @param code         Python code (or shell commands via `!` / `%%bash`) to execute.
      */
     suspend fun runCode(
         bearerToken: String,
@@ -225,34 +277,244 @@ class ColabApiEngine(
         code: String
     ): Result<CellExecutionResult> = withContext(Dispatchers.IO) {
         try {
-            val executeUrl = "${runtime.endpointUrl.trimEnd('/')}/execute"
-
-            val payload = JSONObject().apply {
-                put("session_id", runtime.sessionId)
-                put("code", code)
-                put("output_format", "json")
-            }.toString().toRequestBody(JSON_MEDIA_TYPE)
-
-            val requestBuilder = Request.Builder()
-                .url(executeUrl)
-                .post(payload)
-                .header("Authorization", "Bearer $bearerToken")
-                .header("Accept", "application/json")
-                .header("Content-Type", "application/json")
-                .header("X-Colab-Client-Agent", "colab-android-client/1.0")
-
-            if (runtime.proxyToken.isNotBlank()) {
-                requestBuilder.header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+            val endpoint = runtime.endpointUrl.trimEnd('/')
+            if (endpoint.isBlank()) {
+                return@withContext Result.failure(Exception("Cannot run code: endpointUrl is blank in ColabRuntime"))
             }
 
-            client.newCall(requestBuilder.build()).execute().use { response ->
-                val rawBody = response.body?.string() ?: ""
-                val body = stripXssiPrefix(rawBody)
-                val httpStatus = response.code
-                Result.success(parseCellExecutionResult(body, httpStatus))
+            // Step 1: Discover or create an active Jupyter Kernel on the assigned Colab instance
+            val kernelsUrl = "$endpoint/api/kernels"
+            val kernelsReq = Request.Builder()
+                .url(kernelsUrl)
+                .get()
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    }
+                    if (bearerToken.isNotBlank()) {
+                        header("Authorization", "Bearer $bearerToken")
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                }
+                .build()
+
+            var kernelId = ""
+            try {
+                client.newCall(kernelsReq).execute().use { response ->
+                    val rawBody = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        try {
+                            val array = JSONArray(rawBody)
+                            if (array.length() > 0) {
+                                kernelId = array.getJSONObject(0).optString("id", "")
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // If no existing kernel, create one via POST /api/kernels
+            if (kernelId.isBlank()) {
+                val createReq = Request.Builder()
+                    .url(kernelsUrl)
+                    .post(JSONObject().put("name", "python3").toString().toRequestBody(JSON_MEDIA_TYPE))
+                    .apply {
+                        if (runtime.proxyToken.isNotBlank()) {
+                            header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                        }
+                        if (bearerToken.isNotBlank()) {
+                            header("Authorization", "Bearer $bearerToken")
+                        }
+                        header("X-Colab-Client-Agent", "colab-cli")
+                    }
+                    .build()
+                try {
+                    client.newCall(createReq).execute().use { response ->
+                        val rawBody = response.body?.string() ?: ""
+                        if (response.isSuccessful) {
+                            try {
+                                val json = JSONObject(rawBody)
+                                kernelId = json.optString("id", "")
+                            } catch (_: Exception) {}
+                        }
+                    }
+                } catch (_: Exception) {}
             }
+
+            if (kernelId.isBlank()) {
+                kernelId = runtime.sessionId.ifBlank { UUID.randomUUID().toString() }
+            }
+
+            // Step 2: Connect to Jupyter WebSocket channel and execute code
+            val wsBase = endpoint
+                .replace("https://", "wss://")
+                .replace("http://", "ws://")
+            val sessionId = UUID.randomUUID().toString()
+            val wsUrl = if (runtime.proxyToken.isNotBlank()) {
+                "$wsBase/api/kernels/$kernelId/channels?session_id=$sessionId&token=${runtime.proxyToken}&colab-runtime-proxy-token=${runtime.proxyToken}"
+            } else {
+                "$wsBase/api/kernels/$kernelId/channels?session_id=$sessionId"
+            }
+
+            val wsReq = Request.Builder()
+                .url(wsUrl)
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    }
+                    if (bearerToken.isNotBlank()) {
+                        header("Authorization", "Bearer $bearerToken")
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                }
+                .build()
+
+            val msgId = UUID.randomUUID().toString()
+            val execRequest = JSONObject().apply {
+                put("header", JSONObject().apply {
+                    put("msg_id", msgId)
+                    put("username", "colab")
+                    put("session", sessionId)
+                    put("msg_type", "execute_request")
+                    put("version", "5.3")
+                })
+                put("parent_header", JSONObject())
+                put("metadata", JSONObject())
+                put("content", JSONObject().apply {
+                    put("code", code)
+                    put("silent", false)
+                    put("store_history", true)
+                    put("user_expressions", JSONObject())
+                    put("allow_stdin", false)
+                    put("stop_on_error", true)
+                })
+                put("channel", "shell")
+            }
+
+            val deferredResult = CompletableDeferred<CellExecutionResult>()
+            val stdoutBuilder = StringBuilder()
+            val stderrBuilder = StringBuilder()
+
+            val webSocket = client.newWebSocket(wsReq, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    webSocket.send(execRequest.toString())
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    try {
+                        val msg = JSONObject(text)
+                        val msgType = msg.optString("msg_type", "")
+                        val content = msg.optJSONObject("content") ?: JSONObject()
+                        val parentMsgId = msg.optJSONObject("parent_header")?.optString("msg_id", "") ?: ""
+
+                        if (parentMsgId == msgId || parentMsgId.isBlank()) {
+                            when (msgType) {
+                                "stream" -> {
+                                    val name = content.optString("name", "stdout")
+                                    val textOut = content.optString("text", "")
+                                    if (name == "stderr") {
+                                        stderrBuilder.append(textOut)
+                                    } else {
+                                        stdoutBuilder.append(textOut)
+                                    }
+                                }
+                                "execute_result" -> {
+                                    val data = content.optJSONObject("data")
+                                    val plainText = data?.optString("text/plain", "") ?: ""
+                                    if (plainText.isNotBlank()) {
+                                        stdoutBuilder.append(plainText).append("\n")
+                                    }
+                                }
+                                "error" -> {
+                                    val ename = content.optString("ename", "Error")
+                                    val evalue = content.optString("evalue", "")
+                                    val tbArray = content.optJSONArray("traceback")
+                                    val tb = if (tbArray != null) {
+                                        (0 until tbArray.length()).joinToString("\n") { tbArray.getString(it) }
+                                    } else "$ename: $evalue"
+                                    stderrBuilder.append(tb).append("\n")
+                                }
+                                "status" -> {
+                                    val state = content.optString("execution_state", "")
+                                    if (state == "idle" && parentMsgId == msgId) {
+                                        webSocket.close(1000, "Done")
+                                        if (!deferredResult.isCompleted) {
+                                            deferredResult.complete(
+                                                CellExecutionResult(
+                                                    success = stderrBuilder.isEmpty(),
+                                                    stdout = stdoutBuilder.toString().trim(),
+                                                    stderr = stderrBuilder.toString().trim(),
+                                                    httpStatus = 200,
+                                                    rawResponse = text
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (!deferredResult.isCompleted) {
+                        deferredResult.complete(
+                            CellExecutionResult(
+                                success = false,
+                                stdout = stdoutBuilder.toString().trim(),
+                                stderr = "WebSocket failure: ${t.message}\n" + stderrBuilder.toString().trim(),
+                                httpStatus = response?.code ?: 500,
+                                rawResponse = t.message ?: ""
+                            )
+                        )
+                    }
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!deferredResult.isCompleted) {
+                        deferredResult.complete(
+                            CellExecutionResult(
+                                success = stderrBuilder.isEmpty(),
+                                stdout = stdoutBuilder.toString().trim(),
+                                stderr = stderrBuilder.toString().trim(),
+                                httpStatus = 200,
+                                rawResponse = reason
+                            )
+                        )
+                    }
+                }
+            })
+
+            val result = withTimeoutOrNull(45_000L) {
+                deferredResult.await()
+            } ?: run {
+                webSocket.cancel()
+                CellExecutionResult(
+                    success = false,
+                    stdout = stdoutBuilder.toString().trim(),
+                    stderr = "Execution timed out waiting for Colab kernel",
+                    httpStatus = 504,
+                    rawResponse = ""
+                )
+            }
+
+            Result.success(result)
         } catch (e: Exception) {
             Result.failure(Exception("runCode network error: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Runs [bootstrapScript] on an already allocated [runtime].
+     */
+    suspend fun runBootstrapScript(
+        bearerToken: String,
+        runtime: ColabRuntime,
+        bootstrapScript: String
+    ): Result<Pair<ColabRuntime, CellExecutionResult>> = withContext(Dispatchers.IO) {
+        val formattedCode = formatScriptForExecution(bootstrapScript)
+        runCode(bearerToken, runtime, formattedCode).map { execResult ->
+            Pair(runtime, execResult)
         }
     }
 
@@ -273,11 +535,7 @@ class ColabApiEngine(
         val runtimeResult = allocateRuntime(bearerToken, accelerator, authUser)
         runtimeResult.fold(
             onSuccess = { runtime ->
-                val formattedCode = formatScriptForExecution(bootstrapScript)
-                runCode(bearerToken, runtime, formattedCode).fold(
-                    onSuccess = { execResult -> Result.success(Pair(runtime, execResult)) },
-                    onFailure = { e -> Result.failure(e) }
-                )
+                runBootstrapScript(bearerToken, runtime, bootstrapScript)
             },
             onFailure = { e -> Result.failure(e) }
         )

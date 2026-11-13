@@ -183,12 +183,22 @@ fun DashboardTab(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = if (hasTunnel) "Tunnel Connected" else "Auto-Configuring Tunnel",
+                                    text = when {
+                                        hasTunnel -> "Tunnel Connected"
+                                        vm.status == VMStatus.STARTING -> "Provisioning & Tunneling..."
+                                        vm.status == VMStatus.ERROR -> "Provisioning Error"
+                                        else -> "Auto-Configuring Tunnel"
+                                    },
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = if (hasTunnel) "$host:$port" else "Listening for Colab script... Run script in notebook",
+                                    text = when {
+                                        hasTunnel -> "$host:$port"
+                                        vm.status == VMStatus.STARTING -> "Allocating Colab runtime & establishing tunnel..."
+                                        vm.status == VMStatus.ERROR -> "Failed to establish tunnel. Tap Retry below."
+                                        else -> "Ready to launch instance."
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     fontFamily = if (hasTunnel) FontFamily.Monospace else FontFamily.Default,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -233,6 +243,93 @@ fun DashboardTab(
                             text = vm.sshConfig.resilientProtocol.label,
                             tint = statusSuccessColor()
                         )
+                    }
+                }
+            }
+        }
+
+        // Section 1.5: Dynamic Provisioning / Error Banner
+        if (vm.status == VMStatus.STARTING) {
+            item {
+                OutlinedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Provisioning Colab Instance...",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Allocating Google Colab compute node, bootstrapping Alpine environment, and connecting tunnel gateway. Please wait...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        }
+
+        if (vm.status == VMStatus.ERROR) {
+            item {
+                OutlinedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Provisioning Failed",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Unable to connect or start the Google Colab runtime. Check your account authentication or tap retry below.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = { repository.spinUpVM(vm.id) },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Retry Provisioning")
+                        }
                     }
                 }
             }
@@ -353,13 +450,13 @@ fun DashboardTab(
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Text(
-                        text = "Colab Runtime Bootstrap",
+                        text = "Automated & Manual Controls",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Run this script in a Google Colab notebook cell. The tunnel and everything are configured automatically.",
+                        text = "Automated provisioning runs in the background. You can also copy the bootstrap script to run manually in any Colab notebook.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -401,6 +498,7 @@ fun DashboardTab(
                                     repository.spinUpVM(vm.id)
                                 }
                             },
+                            enabled = vm.status != VMStatus.STARTING,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
@@ -413,7 +511,11 @@ fun DashboardTab(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (vm.status == VMStatus.RUNNING) "Mark Stopped" else "Mark Active",
+                                text = when (vm.status) {
+                                    VMStatus.RUNNING -> "Stop Instance"
+                                    VMStatus.STARTING -> "Starting..."
+                                    else -> "Start Instance"
+                                },
                                 maxLines = 1,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -422,6 +524,14 @@ fun DashboardTab(
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = "Notebook Bootstrap Snippet (Optional Fallback):",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Surface(
                         modifier = Modifier.fillMaxWidth(),

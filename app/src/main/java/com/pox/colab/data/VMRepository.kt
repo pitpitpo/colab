@@ -208,7 +208,7 @@ class VMRepository(
                 password = password
             )
         )
-        val token = targetAccount.oauthToken.ifBlank { targetAccount.tokenOrCookie }
+        val token = ColabApiEngine.extractBearerToken(targetAccount)
         val completeVM = initialVM.copy(
             bootstrapScript = AlpineBootstrapGenerator.generateBootstrapScript(initialVM, token)
         )
@@ -280,7 +280,7 @@ class VMRepository(
             try {
                 val mode = preferences.getRuntimeEngineMode()
                 val account = _accounts.value.find { it.id == target.accountId } ?: _activeAccount.value
-                val token = account?.oauthToken?.ifBlank { account.tokenOrCookie } ?: account?.tokenOrCookie ?: ""
+                val token = account?.let { ColabApiEngine.extractBearerToken(it) } ?: ""
 
                 if (account == null || token.isBlank()) {
                     android.util.Log.e("VMRepository", "Authentication failure: VM ${target.name} ($vmId) has no valid authenticated Google Colab account or OAuth token.")
@@ -303,39 +303,74 @@ class VMRepository(
                 // Start asynchronous rendezvous tunnel discovery so the VM announces its tunnel
                 startTunnelDiscovery(vmId)
 
+                val executeNativeApi: suspend () -> Unit = {
+                    val accelerator = mapToColabAccelerator(target.hardwareAccelerator)
+
+                    // Check for existing active Colab assignment on this account (fast reconnect)
+                    val existingList = colabApiEngine.listAssignments(token).getOrNull()
+                    val activeRuntime = existingList?.firstOrNull { it.sessionId.isNotBlank() }
+
+                    val runtimeResult = if (activeRuntime != null) {
+                        Result.success(activeRuntime)
+                    } else {
+                        colabApiEngine.allocateRuntime(token, accelerator)
+                    }
+
+                    runtimeResult.fold(
+                        onSuccess = { runtime ->
+                            val current = getVMById(vmId)
+                            if (current != null) {
+                                val assignedUrl = runtime.endpointUrl.ifBlank { "https://colab.research.google.com/tun/m/${runtime.sessionId}" }
+                                updateVM(current.copy(
+                                    status = VMStatus.STARTING,
+                                    tunnelUrl = current.tunnelUrl?.takeIf { it.isNotBlank() } ?: assignedUrl
+                                ))
+                            }
+
+                            val result = colabApiEngine.runBootstrapScript(
+                                bearerToken = token,
+                                runtime = runtime,
+                                bootstrapScript = bootstrapScript
+                            )
+
+                            result.fold(
+                                onSuccess = { (_, execResult) ->
+                                    if (!execResult.success && execResult.httpStatus >= 400) {
+                                        val cur = getVMById(vmId)
+                                        if (cur != null && cur.status != VMStatus.RUNNING && cur.tunnelUrl.isNullOrBlank()) {
+                                            updateVM(cur.copy(status = VMStatus.ERROR))
+                                        }
+                                    }
+                                },
+                                onFailure = {
+                                    // Keep STARTING while tunnel discovery is listening
+                                }
+                            )
+                        },
+                        onFailure = { allocErr ->
+                            android.util.Log.e("VMRepository", "Colab allocation failed: ${allocErr.message}", allocErr)
+                            val current = getVMById(vmId)
+                            if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
+                                updateVM(current.copy(status = VMStatus.ERROR))
+                            }
+                        }
+                    )
+                }
+
                 when (mode) {
                     RuntimeEngineMode.NATIVE_API -> {
-                        // Option A: Direct REST runtime allocation & bootstrap cell execution
-                        val accelerator = mapToColabAccelerator(target.hardwareAccelerator)
-                        val result = colabApiEngine.runBootstrapScript(
-                            bearerToken = token,
-                            bootstrapScript = bootstrapScript,
-                            accelerator = accelerator
-                        )
-
-                        result.fold(
-                            onSuccess = { (_, execResult) ->
-                                if (!execResult.success && execResult.httpStatus >= 400) {
-                                    val current = getVMById(vmId)
-                                    if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
-                                        updateVM(current.copy(status = VMStatus.ERROR))
-                                    }
-                                }
-                            },
-                            onFailure = {
-                                val current = getVMById(vmId)
-                                if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
-                                    updateVM(current.copy(status = VMStatus.ERROR))
-                                }
-                            }
-                        )
+                        executeNativeApi()
                     }
 
                     RuntimeEngineMode.ALPINE_PROOT -> {
                         // Option B: Embedded Alpine Container with PRoot + colab-cli
                         val ctx = appContext
-                        if (ctx != null) {
-                            val containerMgr = AlpineAppContainerManager.getInstance(ctx)
+                        val containerMgr = ctx?.let { AlpineAppContainerManager.getInstance(it) }
+                        val prootBinary = containerMgr?.findProotBinary() ?: "proot"
+                        val prootFile = java.io.File(prootBinary)
+                        val prootCanRun = prootFile.exists() && prootFile.canExecute() && containerMgr?.isRootfsInstalled() == true
+
+                        if (prootCanRun && ctx != null && containerMgr != null) {
                             val execResult = containerMgr.executeColabCli(
                                 target.accountId,
                                 "runtime",
@@ -349,6 +384,9 @@ class VMRepository(
                                     updateVM(current.copy(status = VMStatus.ERROR))
                                 }
                             }
+                        } else {
+                            android.util.Log.i("VMRepository", "Alpine PRoot environment not initialized on device. Seamlessly routing execution through Direct Colab REST/WebSocket API.")
+                            executeNativeApi()
                         }
                     }
                 }

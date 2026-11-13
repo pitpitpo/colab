@@ -350,8 +350,10 @@ fun HomeScreen(
                     showSignInDialog = true
                 },
                 onConfirm = { name, accId, accelerator, tunnel, proto, password, tunnelEndpoint ->
-                    repository.addVM(name, accId, accelerator, tunnel, proto, password, tunnelEndpoint)
+                    val newVm = repository.addVM(name, accId, accelerator, tunnel, proto, password, tunnelEndpoint)
                     showAddDialog = false
+                    repository.spinUpVM(newVm.id)
+                    onNavigateToVM(newVm.id, 0)
                 }
             )
         }
