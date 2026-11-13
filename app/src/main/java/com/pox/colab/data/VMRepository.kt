@@ -237,10 +237,13 @@ class VMRepository(
         }
     }
 
-    fun spinUpAlpineVM(vmId: String) {
+    fun spinUpVM(vmId: String) {
         val target = getVMById(vmId) ?: return
         updateVM(target.copy(status = VMStatus.RUNNING))
     }
+
+    @Deprecated("Use spinUpVM instead", ReplaceWith("spinUpVM(vmId)"))
+    inline fun spinUpAlpineVM(vmId: String) = spinUpVM(vmId)
 
     fun stopVM(vmId: String) {
         val target = getVMById(vmId) ?: return

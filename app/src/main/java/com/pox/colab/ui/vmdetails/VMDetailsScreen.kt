@@ -188,7 +188,7 @@ fun VMDetailsScreen(
                             if (vm.status == VMStatus.RUNNING) {
                                 repository.stopVM(vm.id)
                             } else {
-                                repository.spinUpAlpineVM(vm.id)
+                                repository.spinUpVM(vm.id)
                             }
                         }
                     ) {

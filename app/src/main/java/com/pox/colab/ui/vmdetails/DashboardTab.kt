@@ -333,7 +333,7 @@ fun DashboardTab(
             }
         }
 
-        // Section 3: Alpine Container Setup & Script
+        // Section 3: Colab Runtime Setup & Script
         item {
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -345,13 +345,13 @@ fun DashboardTab(
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Text(
-                        text = "Alpine Container Bootstrap",
+                        text = "Colab Runtime Bootstrap",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Run this script in a Google Colab notebook cell to spin up Alpine with Colab CLI & resilient SSH tunnel.",
+                        text = "Run this script in a Google Colab notebook cell to spin up resilient SSH tunnel.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -390,7 +390,7 @@ fun DashboardTab(
                                 if (vm.status == VMStatus.RUNNING) {
                                     repository.stopVM(vm.id)
                                 } else {
-                                    repository.spinUpAlpineVM(vm.id)
+                                    repository.spinUpVM(vm.id)
                                 }
                             },
                             modifier = Modifier.weight(1f),

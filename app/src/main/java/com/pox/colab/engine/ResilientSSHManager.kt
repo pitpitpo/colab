@@ -323,7 +323,7 @@ class ResilientSSHManager(
             val session = jschSession
             if (session == null || !session.isConnected) return@withContext
             val execChannel = session.openChannel("exec") as ChannelExec
-            execChannel.setCommand("cat /tmp/colab_metrics.json 2>/dev/null || cat /content/alpine_rootfs/tmp/colab_metrics.json 2>/dev/null || true")
+            execChannel.setCommand("cat /tmp/colab_metrics.json 2>/dev/null || true")
             val inStream = execChannel.inputStream
             execChannel.connect(3000)
             val jsonStr = inStream.bufferedReader().use { it.readText() }.trim()

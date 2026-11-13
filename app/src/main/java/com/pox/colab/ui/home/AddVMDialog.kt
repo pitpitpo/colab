@@ -73,7 +73,7 @@ fun AddVMDialog(
     var selectedMode by remember { mutableIntStateOf(0) }
 
     val generatedSuffix = remember { UUID.randomUUID().toString().replace("-", "").take(12) }
-    val defaultName = remember { "colab-alpine-${generatedSuffix.take(6)}" }
+    val defaultName = remember { "colab-vm-${generatedSuffix.take(6)}" }
     val defaultPassword = remember { "colab-$generatedSuffix-root" }
 
     var vmName by remember { mutableStateOf("") }
@@ -96,7 +96,7 @@ fun AddVMDialog(
         title = {
             Column {
                 Text(
-                    text = "New Alpine Instance",
+                    text = "New Colab Instance",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -148,7 +148,7 @@ fun AddVMDialog(
                                 Text("One-Click Auto Generation", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    "Automatically provisions an optimal Alpine container environment with NVIDIA T4 GPU, resilient tmux shell, and pre-generated secure root credentials.",
+                                    "Google Colab VM with NVIDIA GPU, resilient tmux shell, and pre-generated secure root credentials.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

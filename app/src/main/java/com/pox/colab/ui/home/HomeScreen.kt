@@ -140,7 +140,7 @@ fun HomeScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "Alpine & Resilient Shell",
+                                text = "Google Colab & Resilient Shell",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -311,7 +311,7 @@ fun HomeScreen(
                         onOpenFiles = { onNavigateToVM(vm.id, 2) },
                         onTogglePower = {
                             if (vm.status == VMStatus.RUNNING) repository.stopVM(vm.id)
-                            else repository.spinUpAlpineVM(vm.id)
+                            else repository.spinUpVM(vm.id)
                         },
                         onDelete = { repository.deleteVM(vm.id) }
                     )
@@ -367,7 +367,7 @@ fun M3EmptyState(
             Text("No Virtual Machines", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = if (hasAccounts) "Create an Alpine Linux VM instance with Colab CLI and multi-tab console."
+                text = if (hasAccounts) "Create a Google Colab VM instance with Colab CLI and multi-tab console."
                        else "Add a Google Account in Settings or create a standalone instance.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
