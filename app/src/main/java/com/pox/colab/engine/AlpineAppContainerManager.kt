@@ -183,6 +183,11 @@ class AlpineAppContainerManager private constructor(private val context: Context
         val tokenJsonStr = if (account.oauthToken.isNotBlank() && account.oauthToken.startsWith("{")) {
             account.oauthToken
         } else {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
+            val expiryRfc3339 = sdf.format(java.util.Date(System.currentTimeMillis() + 3600_000L))
+
             gson.toJson(
                 mapOf(
                     "token" to account.tokenOrCookie,
@@ -190,7 +195,7 @@ class AlpineAppContainerManager private constructor(private val context: Context
                     "token_uri" to "https://oauth2.googleapis.com/token",
                     "client_id" to ColabAuthEngine.CLIENT_ID,
                     "scopes" to ColabAuthEngine.SCOPES,
-                    "expiry" to System.currentTimeMillis() + 3600_000L,
+                    "expiry" to expiryRfc3339,
                     "account" to account.email
                 )
             )

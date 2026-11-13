@@ -278,7 +278,12 @@ object ColabAuthEngine {
                 detectedTier = "Free"
             }
 
-            // Step 4: Serialize in authentic ~/.config/colab-cli/token.json format
+            // Step 4: Serialize in authentic ~/.config/colab-cli/token.json format with RFC3339 expiry
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
+            val expiryRfc3339 = sdf.format(java.util.Date(System.currentTimeMillis() + 3600_000L))
+
             val tokenJsonObj = JSONObject().apply {
                 put("token", accessToken)
                 put("refresh_token", refreshToken ?: "")
@@ -288,7 +293,7 @@ object ColabAuthEngine {
                 put("scopes", org.json.JSONArray(SCOPES))
                 put("universe_domain", "googleapis.com")
                 put("account", fetchedEmail)
-                put("expiry", (System.currentTimeMillis() + 3600_000L).toString())
+                put("expiry", expiryRfc3339)
             }
 
             Result.success(

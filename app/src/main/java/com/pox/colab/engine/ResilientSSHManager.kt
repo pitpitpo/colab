@@ -95,6 +95,8 @@ class ResilientSSHManager(
 
         isUserIntentionallyDisconnected = false
         supervisorJob?.cancel()
+        readerJob?.cancel()
+        closeStreamsAndSession()
         supervisorJob = scope.launch(Dispatchers.IO) {
             runConnectionSupervisor()
         }

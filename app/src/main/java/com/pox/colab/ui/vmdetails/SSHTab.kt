@@ -126,8 +126,8 @@ fun SSHTab(
     val consoleBgColor = resolveConsoleBackground(termBgKey)
     var showBgMenu by remember { mutableStateOf(false) }
 
-    // Handle auto-connection for initial session
-    LaunchedEffect(currentSession?.id) {
+    // Handle auto-connection for initial session and endpoint updates
+    LaunchedEffect(currentSession?.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
         currentSession?.let { s ->
             if (s.manager.connectionState.value == SSHConnectionState.DISCONNECTED) {
                 s.manager.connect()
@@ -135,7 +135,7 @@ fun SSHTab(
         }
     }
 
-    DisposableEffect(vm.id) {
+    DisposableEffect(vm.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
         onDispose {
             sessions.forEach { it.manager.disconnect() }
         }

@@ -43,7 +43,18 @@ object AlpineBootstrapGenerator {
         }
 
         val authSetup = if (!accountTokenOrCookie.isNullOrBlank()) {
-            val sanitized = accountTokenOrCookie.replace("\"", "\\\"").replace("'", "'\\''")
+            val rawToken = if (accountTokenOrCookie.trim().startsWith("{")) {
+                try {
+                    org.json.JSONObject(accountTokenOrCookie).optString("token", "").ifBlank {
+                        org.json.JSONObject(accountTokenOrCookie).optString("access_token", accountTokenOrCookie)
+                    }
+                } catch (_: Exception) {
+                    accountTokenOrCookie
+                }
+            } else {
+                accountTokenOrCookie
+            }
+            val sanitized = rawToken.replace("\"", "\\\"").replace("'", "'\\''")
             """
                 # Configure Google Colab OAuth credentials in Alpine
                 mkdir -p /content/alpine_rootfs/root/.colab /content/alpine_rootfs/root/.config/colab
@@ -215,14 +226,18 @@ def collect_metrics():
     except Exception:
         pass
 
+    cpu_pct = 0.0
     try:
         cpu_pct = min(100.0, float(load[0]) * 20.0)
+    except Exception:
+        cpu_pct = 0.0
+
     uptime_sec = 0
     try:
         with open("/proc/uptime", "r") as f:
             uptime_sec = int(float(f.readline().split()[0]))
     except Exception:
-        pass
+        uptime_sec = 0
 
     return {
         "status": "RUNNING",
