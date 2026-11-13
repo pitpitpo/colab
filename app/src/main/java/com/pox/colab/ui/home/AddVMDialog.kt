@@ -156,7 +156,7 @@ fun AddVMDialog(
                                 Text("Instance: $defaultName", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                                 Text("Root Password: $defaultPassword", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                 Text("Hardware: NVIDIA T4 Tensor Core", fontSize = 12.sp)
-                                Text("Tunnel: Cloudflare Quick Tunnel", fontSize = 12.sp)
+                                Text("Tunnel: Auto-Configured (Zero-Config Broadcast)", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                                 Text("Shell: tmux Anti-Disconnect SSH", fontSize = 12.sp)
                                 Text(
                                     text = "Account: ${accounts.find { it.id == selectedAccountId }?.displayName ?: "Standalone (no linked account)"}",
@@ -311,8 +311,9 @@ fun AddVMDialog(
                             OutlinedTextField(
                                 value = tunnelEndpoint,
                                 onValueChange = { tunnelEndpoint = it },
-                                label = { Text("Preconfigured Tunnel Endpoint (Optional)") },
-                                placeholder = { Text("e.g. bore.pub:42195") },
+                                label = { Text("Manual Tunnel Override (Optional)") },
+                                placeholder = { Text("Leave blank for zero-config auto-discovery") },
+                                supportingText = { Text("The Colab script automatically configures and announces the tunnel. Only set this if using a custom static IP.") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)

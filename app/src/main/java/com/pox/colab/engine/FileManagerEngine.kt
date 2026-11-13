@@ -26,9 +26,10 @@ import kotlinx.coroutines.cancel
 
 class FileManagerEngine(
     private val context: Context,
-    private val vm: ColabVM,
+    initialVM: ColabVM,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
+    private var vm: ColabVM = initialVM
     private val _currentPath = MutableStateFlow("/content")
     val currentPath: StateFlow<String> = _currentPath.asStateFlow()
 
@@ -67,9 +68,25 @@ class FileManagerEngine(
 
         disconnectSftp()
 
-        val (host, port) = resolveHostAndPort()
+        var (host, port) = resolveHostAndPort()
         if (host.isBlank()) {
-            throw IllegalStateException("Tunnel host not configured. Please set the live tunnel endpoint.")
+            val ep = TunnelDiscoveryEngine.pollDiscoveredEndpoint(vm.id)
+            if (!ep.isNullOrBlank()) {
+                val (newHost, newPort) = VMRepository.parseEndpoint(ep)
+                vm = vm.copy(
+                    tunnelUrl = ep,
+                    sshConfig = vm.sshConfig.copy(host = newHost, port = newPort),
+                    status = com.pox.colab.model.VMStatus.RUNNING
+                )
+                try {
+                    com.pox.colab.ColabApp.instance.repository.updateTunnelEndpoint(vm.id, ep)
+                } catch (_: Exception) {}
+                host = newHost
+                port = newPort
+            }
+        }
+        if (host.isBlank()) {
+            throw IllegalStateException("Tunnel host not yet announced. Please run the bootstrap script in Colab.")
         }
 
         val session = jsch.getSession(vm.sshConfig.username, host, port)

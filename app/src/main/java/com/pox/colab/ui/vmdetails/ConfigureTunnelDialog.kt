@@ -74,7 +74,7 @@ fun ConfigureTunnelDialog(
                     )
                 }
                 Text(
-                    text = "Configure Tunnel Endpoint",
+                    text = "Tunnel Settings & Override",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -87,7 +87,7 @@ fun ConfigureTunnelDialog(
                     .imePadding()
             ) {
                 Text(
-                    text = "Paste the public tunnel address output by your Colab bootstrap script (e.g. from bore.pub or cloudflared).",
+                    text = "The Colab bootstrap script automatically configures and announces the tunnel. You can provide a manual host:port override here if you prefer a static or custom tunnel endpoint.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

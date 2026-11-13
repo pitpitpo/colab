@@ -64,8 +64,12 @@ class AlpineBootstrapGeneratorTest {
         assertTrue(script.contains("tmux new-session"))
         assertTrue(script.contains("colab_session"))
 
-        // Verifies Tunnel setup (Bore)
+        // Verifies Tunnel setup (Bore) & Autonomous Discovery Broadcast
         assertTrue(script.contains("bore local 22"))
+        assertTrue(script.contains("announce_endpoint"))
+        assertTrue(script.contains("DISCOVERY_URL"))
+        assertTrue(script.contains("colab_vm_"))
+        assertTrue(script.contains("/tmp/colab_tunnel_endpoint.txt"))
 
         // Verifies host credentials setup (in ~/.colab/credentials.json, NOT in alpine chroot)
         assertTrue(script.contains("~/.colab/credentials.json"))

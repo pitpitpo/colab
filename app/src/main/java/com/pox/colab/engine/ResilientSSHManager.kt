@@ -41,12 +41,14 @@ data class TerminalLine(
 )
 
 class ResilientSSHManager(
-    private val vm: ColabVM,
+    initialVM: ColabVM,
     private val scope: CoroutineScope,
     var onMetricsUpdated: ((VMMetrics) -> Unit)? = null,
     var onConnectionStateChanged: ((SSHConnectionState) -> Unit)? = null,
     private val tmuxSessionOverride: String? = null
 ) {
+    var vm: ColabVM = initialVM
+        private set
     private val _connectionState = MutableStateFlow(SSHConnectionState.DISCONNECTED)
     val connectionState: StateFlow<SSHConnectionState> = _connectionState.asStateFlow()
 
@@ -92,10 +94,46 @@ class ResilientSSHManager(
     fun connect() {
         val (host, _) = resolveHostAndPort()
         if (host.isBlank()) {
-            setConnectionState(SSHConnectionState.DISCONNECTED)
-            _statusMessage.value = "Tunnel endpoint required"
-            appendSystemNotice("[!] No active tunnel host specified for VM '${vm.name}'.")
-            appendSystemNotice("[!] Run the bootstrap script in Colab and configure the tunnel endpoint (e.g. bore.pub:38491).")
+            setConnectionState(SSHConnectionState.CONNECTING)
+            _statusMessage.value = "Auto-discovering tunnel..."
+            appendSystemNotice("[*] Tunnel endpoint not yet configured.")
+            appendSystemNotice("[*] Listening for Colab script tunnel announcement on topic '${TunnelDiscoveryEngine.getDiscoveryTopic(vm.id)}'...")
+            appendSystemNotice("[*] Run the bootstrap script in Colab to connect automatically.")
+
+            isUserIntentionallyDisconnected = false
+            supervisorJob?.cancel()
+            supervisorJob = scope.launch(Dispatchers.IO) {
+                var discoveredEndpoint: String? = null
+                for (attempt in 1..120) {
+                    if (!isActive || isUserIntentionallyDisconnected) break
+                    val ep = TunnelDiscoveryEngine.pollDiscoveredEndpoint(vm.id)
+                    if (!ep.isNullOrBlank()) {
+                        discoveredEndpoint = ep
+                        break
+                    }
+                    delay(2000)
+                }
+
+                if (!discoveredEndpoint.isNullOrBlank()) {
+                    appendSystemNotice("[+] Discovered live tunnel endpoint: $discoveredEndpoint")
+                    appendSystemNotice("[*] Connecting SSH session...")
+                    val (newHost, newPort) = VMRepository.parseEndpoint(discoveredEndpoint)
+                    vm = vm.copy(
+                        tunnelUrl = discoveredEndpoint,
+                        sshConfig = vm.sshConfig.copy(host = newHost, port = newPort),
+                        status = com.pox.colab.model.VMStatus.RUNNING
+                    )
+                    try {
+                        com.pox.colab.ColabApp.instance.repository.updateTunnelEndpoint(vm.id, discoveredEndpoint)
+                    } catch (_: Exception) {}
+
+                    runConnectionSupervisor()
+                } else if (!isUserIntentionallyDisconnected) {
+                    setConnectionState(SSHConnectionState.DISCONNECTED)
+                    _statusMessage.value = "Discovery timed out"
+                    appendSystemNotice("[!] Tunnel auto-discovery timed out. Please ensure the Colab cell is running.")
+                }
+            }
             return
         }
 

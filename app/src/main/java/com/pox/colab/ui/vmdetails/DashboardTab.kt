@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -90,6 +91,13 @@ fun DashboardTab(
         }
     )
     val hasTunnel = host.isNotBlank()
+
+    // Autonomous tunnel auto-discovery from Colab bootstrap broadcast
+    LaunchedEffect(vm.id, hasTunnel) {
+        if (!hasTunnel) {
+            repository.startTunnelDiscovery(vm.id)
+        }
+    }
 
     // Real HTTP Telemetry Polling worker via OkHttp
     LaunchedEffect(vm.id, host, port, vm.status) {
@@ -160,14 +168,14 @@ fun DashboardTab(
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = if (hasTunnel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                                color = if (hasTunnel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = if (hasTunnel) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                        imageVector = if (hasTunnel) Icons.Default.CheckCircle else Icons.Default.Sync,
                                         contentDescription = null,
-                                        tint = if (hasTunnel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                                        tint = if (hasTunnel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -175,12 +183,12 @@ fun DashboardTab(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = if (hasTunnel) "Tunnel Connected" else "No Tunnel Configured",
+                                    text = if (hasTunnel) "Tunnel Connected" else "Auto-Configuring Tunnel",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = if (hasTunnel) "$host:$port" else "Required for SSH & SFTP file browsing",
+                                    text = if (hasTunnel) "$host:$port" else "Listening for Colab script... Run script in notebook",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontFamily = if (hasTunnel) FontFamily.Monospace else FontFamily.Default,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -201,7 +209,7 @@ fun DashboardTab(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (hasTunnel) "Edit" else "Configure", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (hasTunnel) "Edit" else "Override", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
 
@@ -351,7 +359,7 @@ fun DashboardTab(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Run this script in a Google Colab notebook cell to spin up resilient SSH tunnel.",
+                        text = "Run this script in a Google Colab notebook cell. The tunnel and everything are configured automatically.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

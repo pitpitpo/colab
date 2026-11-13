@@ -3,6 +3,7 @@ package com.pox.colab.data
 import android.content.Context
 import com.pox.colab.engine.AlpineAppContainerManager
 import com.pox.colab.engine.AlpineBootstrapGenerator
+import com.pox.colab.engine.TunnelDiscoveryEngine
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.HardwareAccelerator
@@ -194,6 +195,12 @@ class VMRepository(
             current + completeVM
         }
         preferences.saveVMs(updated)
+
+        // Automatically start tunnel auto-discovery if no manual endpoint was provided
+        if (tunnelEndpoint.isBlank()) {
+            startTunnelDiscovery(completeVM.id)
+        }
+
         return completeVM
     }
 
@@ -240,6 +247,24 @@ class VMRepository(
     fun spinUpVM(vmId: String) {
         val target = getVMById(vmId) ?: return
         updateVM(target.copy(status = VMStatus.RUNNING))
+        if (target.tunnelUrl.isNullOrBlank()) {
+            startTunnelDiscovery(vmId)
+        }
+    }
+
+    /**
+     * Initiates asynchronous tunnel auto-discovery for the VM by monitoring the
+     * rendezvous channel announced by the Colab bootstrap script.
+     */
+    fun startTunnelDiscovery(vmId: String, onDiscovered: ((String) -> Unit)? = null): kotlinx.coroutines.Job {
+        return TunnelDiscoveryEngine.startAutoDiscovery(vmId, scope) { endpoint ->
+            updateTunnelEndpoint(vmId, endpoint)
+            val vm = getVMById(vmId)
+            if (vm != null && vm.status != VMStatus.RUNNING) {
+                updateVM(vm.copy(status = VMStatus.RUNNING))
+            }
+            onDiscovered?.invoke(endpoint)
+        }
     }
 
     @Deprecated("Use spinUpVM instead", ReplaceWith("spinUpVM(vmId)"))

@@ -13,6 +13,9 @@ object ColabBootstrapGenerator {
      * Alpine Linux chroot or minirootfs.
      */
     fun generateBootstrapScript(vm: ColabVM, accountTokenOrCookie: String? = null): String {
+        val discoveryTopic = TunnelDiscoveryEngine.getDiscoveryTopic(vm.id)
+        val discoveryUrl = TunnelDiscoveryEngine.getDiscoveryUrl(vm.id)
+
         val tunnelCmd = when (vm.tunnelProvider) {
             TunnelProvider.CLOUDFLARE -> """
                 # Install Cloudflared Tunnel
@@ -22,7 +25,18 @@ object ColabBootstrapGenerator {
                 fi
                 echo "[*] Starting Cloudflare Quick Tunnel..."
                 cloudflared tunnel --url ssh://localhost:${vm.sshConfig.port} > /tmp/tunnel.log 2>&1 &
-                echo "[*] Run 'grep -o 'https://.*trycloudflare.com' /tmp/tunnel.log' to view the tunnel endpoint."
+                
+                # Auto-detect Cloudflare endpoint and broadcast to app
+                for i in $(seq 1 30); do
+                    if [ -f /tmp/tunnel.log ]; then
+                        EP=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -n 1 || true)
+                        if [ -n "${'$'}EP" ]; then
+                            announce_endpoint "${'$'}EP"
+                            break
+                        fi
+                    fi
+                    sleep 1
+                done
             """.trimIndent()
             TunnelProvider.BORE -> """
                 # Install bore tcp tunnel
@@ -31,15 +45,41 @@ object ColabBootstrapGenerator {
                 fi
                 echo "[*] Starting Bore TCP Tunnel..."
                 bore local ${vm.sshConfig.port} --to bore.pub > /tmp/tunnel.log 2>&1 &
-                echo "[*] Run 'cat /tmp/tunnel.log' to view your assigned bore.pub:<port> endpoint."
+                
+                # Auto-detect Bore endpoint and broadcast to app
+                for i in $(seq 1 30); do
+                    if [ -f /tmp/tunnel.log ]; then
+                        EP=$(grep -oE 'bore\.pub:[0-9]+' /tmp/tunnel.log | head -n 1 || true)
+                        if [ -n "${'$'}EP" ]; then
+                            announce_endpoint "${'$'}EP"
+                            break
+                        fi
+                    fi
+                    sleep 1
+                done
             """.trimIndent()
             TunnelProvider.NGROK -> """
                 # Ngrok Tunnel setup
                 echo "[*] Starting Ngrok SSH Tunnel..."
                 ngrok tcp ${vm.sshConfig.port} > /tmp/tunnel.log 2>&1 &
+                
+                # Auto-detect Ngrok endpoint and broadcast to app
+                for i in $(seq 1 30); do
+                    if [ -f /tmp/tunnel.log ]; then
+                        EP=$(grep -oE '[a-zA-Z0-9.-]+\.ngrok(\.io|-free\.app):[0-9]+' /tmp/tunnel.log | head -n 1 || true)
+                        if [ -n "${'$'}EP" ]; then
+                            announce_endpoint "${'$'}EP"
+                            break
+                        fi
+                    fi
+                    sleep 1
+                done
             """.trimIndent()
             TunnelProvider.CUSTOM -> """
                 echo "[*] Using custom tunnel / direct host"
+                if [ -n "${vm.tunnelUrl ?: ""}" ]; then
+                    announce_endpoint "${vm.tunnelUrl}"
+                fi
             """.trimIndent()
         }
 
@@ -156,7 +196,27 @@ CLICONTENT
             echo "=== [3/5] Spawning Persistent Tmux Session ==="
             tmux new-session -d -s "${vm.sshConfig.tmuxSessionName}" 'bash' || true
 
-            echo "=== [4/5] Starting Tunnel Provider ==="
+            echo "=== [4/5] Starting Tunnel Provider & Auto-Announcing Endpoint ==="
+            DISCOVERY_TOPIC="$discoveryTopic"
+            DISCOVERY_URL="$discoveryUrl"
+
+            announce_endpoint() {
+                local ep="${'$'}1"
+                if [ -n "${'$'}ep" ]; then
+                    echo "=========================================================="
+                    echo "   TUNNEL READY: ${'$'}ep"
+                    echo "=========================================================="
+                    echo "${'$'}ep" > /tmp/colab_tunnel_endpoint.txt
+                    for attempt in 1 2 3 4 5; do
+                        if curl -s -m 5 -d "${'$'}ep" "${'$'}DISCOVERY_URL" > /dev/null 2>&1; then
+                            echo "[*] Auto-announced endpoint to Android app successfully."
+                            break
+                        fi
+                        sleep 1
+                    done
+                fi
+            }
+
             $tunnelCmd
 
             echo "=== [5/5] Launching Real Telemetry Daemon ==="
@@ -231,6 +291,14 @@ def collect_metrics():
     except Exception:
         uptime_sec = 0
 
+    tunnel_ep = None
+    try:
+        if os.path.exists('/tmp/colab_tunnel_endpoint.txt'):
+            with open('/tmp/colab_tunnel_endpoint.txt') as f:
+                tunnel_ep = f.read().strip()
+    except Exception:
+        pass
+
     return {
         "status": "RUNNING",
         "cpu_percent": round(cpu_pct, 1),
@@ -245,6 +313,7 @@ def collect_metrics():
         "gpu_temperature_celsius": gpu_temp,
         "gpu_usage_percent": round(gpu_util, 1),
         "uptime_seconds": uptime_sec,
+        "tunnel_endpoint": tunnel_ep,
         "timestamp": time.time()
     }
 
