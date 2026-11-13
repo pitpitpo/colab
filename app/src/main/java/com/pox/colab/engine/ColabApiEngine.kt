@@ -1,5 +1,7 @@
 package com.pox.colab.engine
 
+import com.pox.colab.model.ColabAccount
+import com.pox.colab.model.HardwareAccelerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -8,6 +10,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 // ---------------------------------------------------------------------------
@@ -22,6 +25,14 @@ enum class ColabAccelerator(val apiValue: String) {
     A100("A100")
 }
 
+/** Mapping helper between app HardwareAccelerator and ColabAccelerator. */
+fun HardwareAccelerator.toColabAccelerator(): ColabAccelerator = when (this) {
+    HardwareAccelerator.NONE -> ColabAccelerator.NONE
+    HardwareAccelerator.T4 -> ColabAccelerator.T4
+    HardwareAccelerator.V100 -> ColabAccelerator.V100
+    HardwareAccelerator.A100 -> ColabAccelerator.A100
+}
+
 /** Runtime session returned after successful allocation. */
 data class ColabRuntime(
     /** Colab session / kernel ID. */
@@ -31,7 +42,11 @@ data class ColabRuntime(
     /** Datalab / GKE backend URL if present. */
     val datalabBackendUrl: String,
     /** Raw assignment response body for diagnostics. */
-    val rawResponse: String = ""
+    val rawResponse: String = "",
+    /** Runtime proxy authorization token if returned by backend. */
+    val proxyToken: String = "",
+    /** Hardware accelerator provisioned. */
+    val accelerator: ColabAccelerator = ColabAccelerator.T4
 )
 
 /** Result of running a cell / script on the allocated runtime. */
@@ -72,6 +87,10 @@ class ColabApiEngine(
 ) {
 
     companion object {
+        val INSTANCE: ColabApiEngine by lazy { ColabApiEngine() }
+
+        fun getInstance(): ColabApiEngine = INSTANCE
+
         /** XSSI anti-json-hijacking prefix Google prepends to Colab API responses. */
         private const val XSSI_PREFIX = ")]}'\n"
 
@@ -83,6 +102,47 @@ class ColabApiEngine(
 
         /** JSON media type. */
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /**
+         * Converts a UUID to Google Colab's web-safe base64 notebook hash (nbh) format.
+         */
+        fun uuidToWebSafeBase64(uuid: UUID = UUID.randomUUID()): String {
+            val str = uuid.toString().replace("-", "_")
+            val padding = ".".repeat((44 - str.length).coerceAtLeast(0))
+            return str + padding
+        }
+
+        /**
+         * Extracts the raw Bearer token from a [ColabAccount], unpacking JSON token blobs if necessary.
+         */
+        fun extractBearerToken(account: ColabAccount): String {
+            val candidate = account.oauthToken.ifBlank { account.tokenOrCookie }.trim()
+            if (candidate.startsWith("{")) {
+                try {
+                    val json = JSONObject(candidate)
+                    val token = json.optString("token", "").ifBlank {
+                        json.optString("access_token", "")
+                    }
+                    if (token.isNotBlank()) return token
+                } catch (_: Exception) {}
+            }
+            return candidate
+        }
+
+        /**
+         * Formats a raw script (e.g. bash bootstrapper) for safe execution in a Colab notebook cell.
+         * Automatically prepends `%%bash\n` if the script contains bash commands and lacks cell magic.
+         */
+        fun formatScriptForExecution(rawScript: String): String {
+            val trimmed = rawScript.trim()
+            if (trimmed.isEmpty()) return ""
+            if (trimmed.startsWith("%%bash") || trimmed.startsWith("import ") ||
+                trimmed.startsWith("from ") || trimmed.startsWith("%")
+            ) {
+                return trimmed
+            }
+            return "%%bash\n$trimmed"
+        }
     }
 
     private val client: OkHttpClient by lazy {
@@ -94,7 +154,7 @@ class ColabApiEngine(
     }
 
     // ---------------------------------------------------------------------------
-    // Public API
+    // Public API - String Token Overloads
     // ---------------------------------------------------------------------------
 
     /**
@@ -173,16 +233,19 @@ class ColabApiEngine(
                 put("output_format", "json")
             }.toString().toRequestBody(JSON_MEDIA_TYPE)
 
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(executeUrl)
                 .post(payload)
                 .header("Authorization", "Bearer $bearerToken")
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 .header("X-Colab-Client-Agent", "colab-android-client/1.0")
-                .build()
 
-            client.newCall(request).execute().use { response ->
+            if (runtime.proxyToken.isNotBlank()) {
+                requestBuilder.header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+            }
+
+            client.newCall(requestBuilder.build()).execute().use { response ->
                 val rawBody = response.body?.string() ?: ""
                 val body = stripXssiPrefix(rawBody)
                 val httpStatus = response.code
@@ -197,6 +260,9 @@ class ColabApiEngine(
      * Convenience wrapper — allocates a runtime with [allocateRuntime] and
      * immediately runs [bootstrapScript] on it. Returns the [CellExecutionResult]
      * of the script together with the [ColabRuntime] it ran on.
+     *
+     * Automatically formats the script with `formatScriptForExecution` so bash bootstrapper
+     * scripts execute properly in the remote Colab notebook cell.
      */
     suspend fun runBootstrapScript(
         bearerToken: String,
@@ -207,7 +273,8 @@ class ColabApiEngine(
         val runtimeResult = allocateRuntime(bearerToken, accelerator, authUser)
         runtimeResult.fold(
             onSuccess = { runtime ->
-                runCode(bearerToken, runtime, bootstrapScript).fold(
+                val formattedCode = formatScriptForExecution(bootstrapScript)
+                runCode(bearerToken, runtime, formattedCode).fold(
                     onSuccess = { execResult -> Result.success(Pair(runtime, execResult)) },
                     onFailure = { e -> Result.failure(e) }
                 )
@@ -277,6 +344,101 @@ class ColabApiEngine(
         }
     }
 
+    /**
+     * Lists active Colab runtime assignments for the authenticated Google account.
+     * Calls `GET https://colab.research.google.com/tun/m/assignments?authuser=0`.
+     */
+    suspend fun listAssignments(
+        bearerToken: String,
+        authUser: Int = 0
+    ): Result<List<ColabRuntime>> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$COLAB_BASE/tun/m/assignments?authuser=$authUser"
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .header("Authorization", "Bearer $bearerToken")
+                .header("Accept", "application/json")
+                .header("X-Colab-Client-Agent", "colab-android-client/1.0")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val rawBody = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        Exception("listAssignments failed (HTTP ${response.code}): $rawBody")
+                    )
+                }
+                val body = stripXssiPrefix(rawBody)
+                val json = JSONObject(body)
+                val list = mutableListOf<ColabRuntime>()
+                val assignmentsArray = json.optJSONArray("assignments")
+                if (assignmentsArray != null) {
+                    for (i in 0 until assignmentsArray.length()) {
+                        val item = assignmentsArray.optJSONObject(i) ?: continue
+                        list.add(parseAssignResponse(item.toString(), item.toString()))
+                    }
+                }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("listAssignments network error: ${e.message}", e))
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Public API - ColabAccount Overloads
+    // ---------------------------------------------------------------------------
+
+    suspend fun allocateRuntime(
+        account: ColabAccount,
+        accelerator: ColabAccelerator = ColabAccelerator.T4,
+        authUser: Int = 0
+    ): Result<ColabRuntime> = allocateRuntime(extractBearerToken(account), accelerator, authUser)
+
+    suspend fun allocateRuntime(
+        account: ColabAccount,
+        accelerator: HardwareAccelerator,
+        authUser: Int = 0
+    ): Result<ColabRuntime> = allocateRuntime(extractBearerToken(account), accelerator.toColabAccelerator(), authUser)
+
+    suspend fun runCode(
+        account: ColabAccount,
+        runtime: ColabRuntime,
+        code: String
+    ): Result<CellExecutionResult> = runCode(extractBearerToken(account), runtime, code)
+
+    suspend fun runBootstrapScript(
+        account: ColabAccount,
+        bootstrapScript: String,
+        accelerator: ColabAccelerator = ColabAccelerator.T4,
+        authUser: Int = 0
+    ): Result<Pair<ColabRuntime, CellExecutionResult>> =
+        runBootstrapScript(extractBearerToken(account), bootstrapScript, accelerator, authUser)
+
+    suspend fun runBootstrapScript(
+        account: ColabAccount,
+        bootstrapScript: String,
+        accelerator: HardwareAccelerator,
+        authUser: Int = 0
+    ): Result<Pair<ColabRuntime, CellExecutionResult>> =
+        runBootstrapScript(extractBearerToken(account), bootstrapScript, accelerator.toColabAccelerator(), authUser)
+
+    suspend fun checkRuntimeStatus(
+        account: ColabAccount,
+        runtime: ColabRuntime
+    ): Result<RuntimeStatus> = checkRuntimeStatus(extractBearerToken(account), runtime)
+
+    suspend fun terminateRuntime(
+        account: ColabAccount,
+        runtime: ColabRuntime
+    ): Result<Unit> = terminateRuntime(extractBearerToken(account), runtime)
+
+    suspend fun listAssignments(
+        account: ColabAccount,
+        authUser: Int = 0
+    ): Result<List<ColabRuntime>> = listAssignments(extractBearerToken(account), authUser)
+
     // ---------------------------------------------------------------------------
     // Internal parsing helpers
     // ---------------------------------------------------------------------------
@@ -300,9 +462,16 @@ class ColabApiEngine(
 
             val sessionId = assignResp.optString("session_id")
                 .ifBlank { assignResp.optString("sessionId", "") }
+                .ifBlank { assignResp.optString("endpoint", "") }
+
+            val proxyInfo = assignResp.optJSONObject("runtimeProxyInfo")
+                ?: assignResp.optJSONObject("runtime_proxy_info")
+            val proxyUrl = proxyInfo?.optString("url") ?: ""
+            val proxyToken = proxyInfo?.optString("token") ?: ""
 
             val endpointUrl = assignResp.optString("endpoint_url")
                 .ifBlank { assignResp.optString("endpointUrl", "") }
+                .ifBlank { proxyUrl }
                 .let { url ->
                     if (url.isBlank()) {
                         // Fall back: build from session_id if present
@@ -313,11 +482,22 @@ class ColabApiEngine(
             val datalabBackendUrl = assignResp.optString("datalab_backend_url")
                 .ifBlank { assignResp.optString("datalabBackendUrl", "") }
 
+            val acceleratorStr = assignResp.optString("accelerator", "")
+            val accelerator = when (acceleratorStr.uppercase()) {
+                "NONE", "CPU" -> ColabAccelerator.NONE
+                "T4" -> ColabAccelerator.T4
+                "V100" -> ColabAccelerator.V100
+                "A100" -> ColabAccelerator.A100
+                else -> ColabAccelerator.T4
+            }
+
             ColabRuntime(
                 sessionId = sessionId,
                 endpointUrl = endpointUrl,
                 datalabBackendUrl = datalabBackendUrl,
-                rawResponse = rawResponse
+                rawResponse = rawResponse,
+                proxyToken = proxyToken,
+                accelerator = accelerator
             )
         } catch (_: Exception) {
             ColabRuntime(sessionId = "", endpointUrl = "", datalabBackendUrl = "", rawResponse = rawResponse)
@@ -329,8 +509,47 @@ class ColabApiEngine(
         return try {
             val json = JSONObject(body)
             val success = json.optBoolean("success", httpStatus in 200..299)
-            val stdout = collectTextOutputs(json, "stdout")
-            val stderr = collectTextOutputs(json, "stderr")
+            var stdout = collectTextOutputs(json, "stdout")
+            var stderr = collectTextOutputs(json, "stderr")
+
+            // Parse Jupyter style outputs array if top-level stdout/stderr are empty
+            if (stdout.isBlank() && stderr.isBlank()) {
+                val outputs = json.optJSONArray("outputs")
+                if (outputs != null) {
+                    val outBuilder = StringBuilder()
+                    val errBuilder = StringBuilder()
+                    for (i in 0 until outputs.length()) {
+                        val outObj = outputs.optJSONObject(i) ?: continue
+                        val outputType = outObj.optString("output_type", "")
+                        if (outputType == "stream") {
+                            val name = outObj.optString("name", "stdout")
+                            val text = outObj.optString("text", "")
+                            if (name == "stderr") {
+                                if (errBuilder.isNotEmpty()) errBuilder.append("\n")
+                                errBuilder.append(text)
+                            } else {
+                                if (outBuilder.isNotEmpty()) outBuilder.append("\n")
+                                outBuilder.append(text)
+                            }
+                        } else if (outObj.has("data")) {
+                            val dataObj = outObj.optJSONObject("data")
+                            val plainText = dataObj?.optString("text/plain", "") ?: ""
+                            if (plainText.isNotBlank()) {
+                                if (outBuilder.isNotEmpty()) outBuilder.append("\n")
+                                outBuilder.append(plainText)
+                            }
+                        } else if (outputType == "error") {
+                            val ename = outObj.optString("ename", "Error")
+                            val evalue = outObj.optString("evalue", "")
+                            if (errBuilder.isNotEmpty()) errBuilder.append("\n")
+                            errBuilder.append("$ename: $evalue")
+                        }
+                    }
+                    if (outBuilder.isNotEmpty()) stdout = outBuilder.toString()
+                    if (errBuilder.isNotEmpty()) stderr = errBuilder.toString()
+                }
+            }
+
             CellExecutionResult(success = success, stdout = stdout, stderr = stderr, httpStatus = httpStatus)
         } catch (_: Exception) {
             CellExecutionResult(

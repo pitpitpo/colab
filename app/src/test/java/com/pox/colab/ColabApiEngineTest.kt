@@ -4,6 +4,10 @@ import com.pox.colab.engine.CellExecutionResult
 import com.pox.colab.engine.ColabAccelerator
 import com.pox.colab.engine.ColabApiEngine
 import com.pox.colab.engine.ColabRuntime
+import com.pox.colab.engine.toColabAccelerator
+import com.pox.colab.model.ColabAccount
+import com.pox.colab.model.HardwareAccelerator
+import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -321,5 +325,118 @@ class ColabApiEngineTest {
         val rawBody = ")]}'\n{\"session_id\":\"s-raw\"}"
         val runtime = engine.parseAssignResponse(engine.stripXssiPrefix(rawBody), rawBody)
         assertEquals(rawBody, runtime.rawResponse)
+    }
+
+    // ---------------------------------------------------------------------------
+    // 7. Colab CLI compatibility & helpers
+    // ---------------------------------------------------------------------------
+
+    @Test
+    fun uuidToWebSafeBase64_formats44CharacterStringWithUnderscoresAndDots() {
+        val testUuid = UUID.fromString("12345678-1234-5678-1234-567812345678")
+        val nbh = ColabApiEngine.uuidToWebSafeBase64(testUuid)
+        assertEquals(44, nbh.length)
+        assertFalse(nbh.contains("-"))
+        assertTrue(nbh.startsWith("12345678_1234_5678_1234_567812345678"))
+        assertTrue(nbh.endsWith("........"))
+    }
+
+    @Test
+    fun extractBearerToken_extractsFromRawString() {
+        val account = ColabAccount(
+            email = "user@gmail.com",
+            displayName = "User",
+            tokenOrCookie = "ya29.raw_token_value",
+            tier = "Free"
+        )
+        val token = ColabApiEngine.extractBearerToken(account)
+        assertEquals("ya29.raw_token_value", token)
+    }
+
+    @Test
+    fun extractBearerToken_extractsFromJsonBlob() {
+        val jsonBlob = "{\"token\":\"ya29.json_blob_token\",\"account\":\"user@gmail.com\"}"
+        val account = ColabAccount(
+            email = "user@gmail.com",
+            displayName = "User",
+            tokenOrCookie = jsonBlob,
+            tier = "Pro"
+        )
+        val token = ColabApiEngine.extractBearerToken(account)
+        assertEquals("ya29.json_blob_token", token)
+    }
+
+    @Test
+    fun formatScriptForExecution_prependsCellMagicForBashScript() {
+        val bashScript = "#!/usr/bin/env bash\necho 'hello world'\n"
+        val formatted = ColabApiEngine.formatScriptForExecution(bashScript)
+        assertTrue(formatted.startsWith("%%bash\n"))
+        assertTrue(formatted.contains("echo 'hello world'"))
+    }
+
+    @Test
+    fun formatScriptForExecution_leavesPythonAndMagicUntouched() {
+        val pythonScript = "import os\nprint(os.name)"
+        val formatted = ColabApiEngine.formatScriptForExecution(pythonScript)
+        assertEquals(pythonScript, formatted)
+
+        val alreadyMagic = "%%bash\nls -la"
+        assertEquals(alreadyMagic, ColabApiEngine.formatScriptForExecution(alreadyMagic))
+    }
+
+    @Test
+    fun parseAssignResponse_parsesColabCliRuntimeProxyInfo() {
+        val json = """
+            {
+              "endpoint": "m-s-cli-endpoint",
+              "accelerator": "T4",
+              "variant": 1,
+              "runtimeProxyInfo": {
+                "url": "https://colab.research.google.com/tun/m/m-s-cli-endpoint",
+                "token": "proxy-token-xyz-123",
+                "tokenExpiresInSeconds": 86400
+              }
+            }
+        """.trimIndent()
+
+        val runtime = engine.parseAssignResponse(json)
+        assertEquals("m-s-cli-endpoint", runtime.sessionId)
+        assertEquals("https://colab.research.google.com/tun/m/m-s-cli-endpoint", runtime.endpointUrl)
+        assertEquals("proxy-token-xyz-123", runtime.proxyToken)
+        assertEquals(ColabAccelerator.T4, runtime.accelerator)
+    }
+
+    @Test
+    fun parseCellExecutionResult_parsesJupyterOutputsArray() {
+        val jupyterOutput = """
+            {
+              "success": true,
+              "outputs": [
+                {
+                  "output_type": "stream",
+                  "name": "stdout",
+                  "text": "Tunnel URL: https://abc.trycloudflare.com"
+                },
+                {
+                  "output_type": "stream",
+                  "name": "stderr",
+                  "text": "warning: daemon started"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = engine.parseCellExecutionResult(jupyterOutput, 200)
+        assertTrue(result.success)
+        assertEquals("Tunnel URL: https://abc.trycloudflare.com", result.stdout)
+        assertEquals("warning: daemon started", result.stderr)
+    }
+
+    @Test
+    fun hardwareAccelerator_mapsCorrectlyToColabAccelerator() {
+        assertEquals(ColabAccelerator.NONE, HardwareAccelerator.NONE.toColabAccelerator())
+        assertEquals(ColabAccelerator.T4, HardwareAccelerator.T4.toColabAccelerator())
+        assertEquals(ColabAccelerator.V100, HardwareAccelerator.V100.toColabAccelerator())
+        assertEquals(ColabAccelerator.A100, HardwareAccelerator.A100.toColabAccelerator())
     }
 }
