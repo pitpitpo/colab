@@ -56,8 +56,7 @@ object ColabAuthEngine {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    @Volatile
-    private var activeSession: ColabAuthSession? = null
+    private val sessionMap = java.util.concurrent.ConcurrentHashMap<String, ColabAuthSession>()
 
     /**
      * Creates a new cryptographically authentic Colab CLI OAuth 2.0 PKCE Session
@@ -101,12 +100,21 @@ object ColabAuthEngine {
             codeChallenge = codeChallenge,
             state = state
         )
-        activeSession = session
+        sessionMap[state] = session
         return session
     }
 
     fun getOrNewAuthSession(): ColabAuthSession {
-        return activeSession ?: createAuthSession()
+        return sessionMap.values.maxByOrNull { it.createdAt } ?: createAuthSession()
+    }
+
+    fun getSessionByState(state: String): ColabAuthSession? {
+        return sessionMap[state]
+    }
+
+    fun cleanExpiredSessions() {
+        val now = System.currentTimeMillis()
+        sessionMap.entries.removeIf { now - it.value.createdAt > 3600_000L }
     }
 
     /**
@@ -140,7 +148,7 @@ object ColabAuthEngine {
             return@withContext Result.failure(IllegalArgumentException("Authorization code cannot be empty"))
         }
 
-        val verifier = session?.codeVerifier ?: activeSession?.codeVerifier
+        val verifier = session?.codeVerifier ?: sessionMap.values.maxByOrNull { it.createdAt }?.codeVerifier
 
         try {
             var accessToken = trimmed

@@ -42,7 +42,8 @@ data class SSHSessionConfig(
     val authMethod: SSHAuthMethod = SSHAuthMethod.PASSWORD,
     val privateKey: String? = null,
     val resilientProtocol: ResilientProtocol = ResilientProtocol.TMUX_SSH,
-    val tmuxSessionName: String = "colab_session"
+    val tmuxSessionName: String = "colab_session",
+    val keepAliveIntervalSec: Int = 10
 )
 
 data class VMMetrics(
@@ -56,7 +57,8 @@ data class VMMetrics(
     val gpuVramTotalBytes: Long = 0L,
     val gpuModel: String? = null,
     val gpuTemperatureCelsius: Int = 0,
-    val uptimeSeconds: Long = 0L
+    val uptimeSeconds: Long = 0L,
+    val loadAverage: String = "0.00, 0.00, 0.00"
 ) {
     val ramUsagePercent: Float
         get() = if (ramTotalBytes > 0) (ramUsedBytes.toFloat() / ramTotalBytes.toFloat()) * 100f else 0f
@@ -115,7 +117,8 @@ data class RemoteFile(
     val isDirectory: Boolean,
     val sizeBytes: Long,
     val permissions: String = "-rw-r--r--",
-    val modifiedTime: String = ""
+    val modifiedTime: String = "",
+    val modifiedTimestamp: Long = 0L
 ) {
     fun formattedSize(): String {
         if (sizeBytes < 1024) return "$sizeBytes B"

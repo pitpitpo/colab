@@ -34,6 +34,7 @@ import com.pox.colab.ui.vmdetails.VMDetailsScreen
 
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.runtime.collectAsState
 
 class MainActivity : ComponentActivity() {
@@ -123,7 +124,9 @@ fun ColabAppNavHost(app: ColabApp) {
         NavHost(
             navController = navController,
             startDestination = Screen.Home.route,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
         ) {
             composable(Screen.Home.route) {
                 HomeScreen(

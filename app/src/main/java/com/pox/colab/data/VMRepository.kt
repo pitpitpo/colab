@@ -111,19 +111,31 @@ class VMRepository(
         }
     }
 
-    fun toggleAccountEnabled(id: String, isEnabled: Boolean) {
+    fun toggleAccountEnabled(id: String, isEnabled: Boolean, context: Context? = null) {
         _accounts.update { current ->
             val updated = current.map { if (it.id == id) it.copy(isEnabled = isEnabled) else it }
             preferences.saveAccounts(updated)
             updated
         }
+        val target = _accounts.value.find { it.id == id }
+        if (target != null && context != null) {
+            scope.launch {
+                AlpineAppContainerManager.getInstance(context).updateAccountStatus(id, isEnabled, target.tier)
+            }
+        }
     }
 
-    fun updateAccountTier(id: String, tier: String) {
+    fun updateAccountTier(id: String, tier: String, context: Context? = null) {
         _accounts.update { current ->
             val updated = current.map { if (it.id == id) it.copy(tier = tier) else it }
             preferences.saveAccounts(updated)
             updated
+        }
+        val target = _accounts.value.find { it.id == id }
+        if (target != null && context != null) {
+            scope.launch {
+                AlpineAppContainerManager.getInstance(context).updateAccountStatus(id, target.isEnabled, tier)
+            }
         }
     }
 

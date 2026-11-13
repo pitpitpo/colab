@@ -139,7 +139,7 @@ fun DashboardTab(
                         }
 
                         Text(
-                            text = if (vm.status == VMStatus.RUNNING) "Uptime: ${formatUptime(vm.uptimeSeconds)}" else "Offline",
+                            text = if (vm.status == VMStatus.RUNNING) "Uptime: ${formatUptime(vm.metrics.uptimeSeconds)}" else "Offline",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

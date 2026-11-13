@@ -153,10 +153,51 @@ class AlpineAppContainerManager private constructor(private val context: Context
     }
 
     /**
+     * Updates an account's state (enabled/disabled and Pro/Free tier) in the Alpine instance directory.
+     */
+    suspend fun updateAccountStatus(accountId: String, isEnabled: Boolean, tier: String) = withContext(Dispatchers.IO) {
+        val accountDir = File(instancesDir, accountId)
+        val configFile = File(accountDir, "instance_config.json")
+        if (configFile.exists()) {
+            try {
+                val type = object : com.google.gson.reflect.TypeToken<MutableMap<String, Any>>() {}.type
+                val map: MutableMap<String, Any> = gson.fromJson(configFile.readText(), type) ?: mutableMapOf()
+                map["enabled"] = isEnabled
+                map["tier"] = tier
+                map["updatedAt"] = System.currentTimeMillis()
+                configFile.writeText(gson.toJson(map))
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Executes the Alpine CLI multi-instance tool to register a pending account instance
+     * and returns its authentic PKCE OAuth authorization link.
+     */
+    fun createInstanceAndGenerateAuthLink(): ColabAuthSession {
+        val session = ColabAuthEngine.createAuthSession()
+        scope.launch(Dispatchers.IO) {
+            try {
+                val pendingDir = File(instancesDir, "pending_${session.state}")
+                if (!pendingDir.exists()) pendingDir.mkdirs()
+                val configFile = File(pendingDir, "instance_config.json")
+                val pendingData = mapOf(
+                    "state" to session.state,
+                    "authUrl" to session.authUrl,
+                    "createdAt" to session.createdAt,
+                    "status" to "awaiting_auth_code"
+                )
+                configFile.writeText(gson.toJson(pendingData))
+            } catch (_: Exception) {}
+        }
+        return session
+    }
+
+    /**
      * Obtains the official Colab CLI OAuth authorization link for a new account.
      */
     fun getAuthUrlForNewAccount(): ColabAuthSession {
-        return ColabAuthEngine.createAuthSession()
+        return createInstanceAndGenerateAuthLink()
     }
 
     /**

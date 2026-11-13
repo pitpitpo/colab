@@ -100,6 +100,7 @@ fun SettingsScreen(
     val currentAppVersion = "v1.0.0"
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -231,7 +232,7 @@ fun SettingsScreen(
                                             Switch(
                                                 checked = acc.isEnabled,
                                                 onCheckedChange = { isChecked ->
-                                                    repository.toggleAccountEnabled(acc.id, isChecked)
+                                                    repository.toggleAccountEnabled(acc.id, isChecked, context)
                                                     Toast.makeText(context, if (isChecked) "Account enabled" else "Account paused", Toast.LENGTH_SHORT).show()
                                                 }
                                             )
@@ -259,13 +260,13 @@ fun SettingsScreen(
                                             Text("Tier:", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             FilterChip(
                                                 selected = acc.tier.equals("Pro", ignoreCase = true),
-                                                onClick = { repository.updateAccountTier(acc.id, "Pro") },
+                                                onClick = { repository.updateAccountTier(acc.id, "Pro", context) },
                                                 label = { Text("Pro", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                                                 colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ColabOrange.copy(alpha = 0.25f), selectedLabelColor = ColabOrange)
                                             )
                                             FilterChip(
                                                 selected = !acc.tier.equals("Pro", ignoreCase = true),
-                                                onClick = { repository.updateAccountTier(acc.id, "Free") },
+                                                onClick = { repository.updateAccountTier(acc.id, "Free", context) },
                                                 label = { Text("Free", fontSize = 11.sp) }
                                             )
                                         }
@@ -622,7 +623,7 @@ fun SignInAccountDialog(
     onConfirm: (email: String, name: String, token: String, tier: String) -> Unit
 ) {
     val context = LocalContext.current
-    var authSession by remember { mutableStateOf(com.pox.colab.engine.ColabAuthEngine.createAuthSession()) }
+    var authSession by remember { mutableStateOf(com.pox.colab.engine.AlpineAppContainerManager.getInstance(context).createInstanceAndGenerateAuthLink()) }
     var authCode by remember { mutableStateOf("") }
     var isAuthenticating by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
