@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class VMRepository(
     private val preferences: AppPreferences,
@@ -56,6 +57,18 @@ class VMRepository(
             setActiveAccount(account.id)
         }
         return account
+    }
+
+    fun spawnAlpineCliInstance(context: android.content.Context, account: ColabAccount) {
+        scope.launch {
+            com.pox.colab.engine.AlpineAppContainerManager.getInstance(context).spawnCliInstanceForAccount(account)
+        }
+    }
+
+    fun removeAlpineCliInstance(context: android.content.Context, accountId: String) {
+        scope.launch {
+            com.pox.colab.engine.AlpineAppContainerManager.getInstance(context).removeCliInstanceForAccount(accountId)
+        }
     }
 
     fun removeAccount(id: String) {

@@ -280,7 +280,10 @@ fun SettingsScreen(
                                             Spacer(modifier = Modifier.width(4.dp))
 
                                             IconButton(
-                                                onClick = { repository.removeAccount(acc.id) }
+                                                onClick = {
+                                                    repository.removeAlpineCliInstance(context, acc.id)
+                                                    repository.removeAccount(acc.id)
+                                                }
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.Delete,
@@ -990,9 +993,10 @@ fun SettingsScreen(
             SignInAccountDialog(
                 onDismiss = { showSignInDialog = false },
                 onConfirm = { email, name, token, tier ->
-                    repository.addAccount(email, name, token, tier)
+                    val acc = repository.addAccount(email, name, token, tier)
+                    repository.spawnAlpineCliInstance(context, acc)
                     showSignInDialog = false
-                    Toast.makeText(context, "Account connected successfully", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Account connected & CLI instance initialized in Alpine", Toast.LENGTH_SHORT).show()
                 }
             )
         }
