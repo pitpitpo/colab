@@ -29,3 +29,13 @@ build/
 /TESTING.md
 /WORKFLOW.md
 
+# Build artifacts & media
+*.apk
+*.aab
+*.png
+*.jpg
+*.jpeg
+*.log
+golanglearn/
+
+
