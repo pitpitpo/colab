@@ -342,10 +342,14 @@ class VMRepository(
 
                             result.fold(
                                 onSuccess = { (_, execResult) ->
-                                    if (!execResult.success && execResult.httpStatus >= 400) {
-                                        val cur = getVMById(vmId)
-                                        if (cur != null && cur.status != VMStatus.RUNNING && cur.tunnelUrl.isNullOrBlank()) {
-                                            updateVM(cur.copy(status = VMStatus.ERROR))
+                                    val cur = getVMById(vmId)
+                                    if (cur != null) {
+                                        if (execResult.success || cur.tunnelUrl?.isNotBlank() == true) {
+                                            updateVM(cur.copy(status = VMStatus.RUNNING))
+                                        } else if (execResult.httpStatus >= 400) {
+                                            if (cur.status != VMStatus.RUNNING && cur.tunnelUrl.isNullOrBlank()) {
+                                                updateVM(cur.copy(status = VMStatus.ERROR))
+                                            }
                                         }
                                     }
                                 },

@@ -292,7 +292,7 @@ class ColabApiEngine(
                 // Step 2: POST allocation with X-Goog-Colab-Token to provision new VM runtime
                 val postRequest = Request.Builder()
                     .url(assignUrl)
-                    .post("".toRequestBody(JSON_MEDIA_TYPE))
+                    .post("".toRequestBody(null))
                     .header("Authorization", "Bearer $cleanToken")
                     .header("Accept", "application/json")
                     .header("X-Colab-Client-Agent", "colab-cli")
@@ -343,12 +343,13 @@ class ColabApiEngine(
                 .get()
                 .apply {
                     if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
                         header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
-                    }
-                    if (bearerToken.isNotBlank()) {
+                    } else if (bearerToken.isNotBlank()) {
                         header("Authorization", "Bearer $bearerToken")
                     }
                     header("X-Colab-Client-Agent", "colab-cli")
+                    header("Accept", "application/json")
                 }
                 .build()
 
@@ -374,12 +375,13 @@ class ColabApiEngine(
                     .post(JSONObject().put("name", "python3").toString().toRequestBody(JSON_MEDIA_TYPE))
                     .apply {
                         if (runtime.proxyToken.isNotBlank()) {
+                            header("Authorization", "Bearer ${runtime.proxyToken}")
                             header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
-                        }
-                        if (bearerToken.isNotBlank()) {
+                        } else if (bearerToken.isNotBlank()) {
                             header("Authorization", "Bearer $bearerToken")
                         }
                         header("X-Colab-Client-Agent", "colab-cli")
+                        header("Accept", "application/json")
                     }
                     .build()
                 try {
@@ -414,9 +416,9 @@ class ColabApiEngine(
                 .url(wsUrl)
                 .apply {
                     if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
                         header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
-                    }
-                    if (bearerToken.isNotBlank()) {
+                    } else if (bearerToken.isNotBlank()) {
                         header("Authorization", "Bearer $bearerToken")
                     }
                     header("X-Colab-Client-Agent", "colab-cli")
