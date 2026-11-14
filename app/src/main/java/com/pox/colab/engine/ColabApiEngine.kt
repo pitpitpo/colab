@@ -6,6 +6,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -137,6 +138,61 @@ class ColabApiEngine(
         }
 
         /**
+         * Refreshes an expired Google OAuth access token using its refresh_token if present in [account].
+         * Updates the account in place and returns the fresh access token string.
+         */
+        suspend fun refreshOAuthTokenIfNeeded(
+            account: ColabAccount,
+            client: OkHttpClient = OkHttpClient()
+        ): String = withContext(Dispatchers.IO) {
+            val rawToken = account.oauthToken.ifBlank { account.tokenOrCookie }.trim()
+            if (!rawToken.startsWith("{")) return@withContext extractBearerToken(account)
+
+            try {
+                val json = JSONObject(rawToken)
+                val refreshToken = json.optString("refresh_token", "")
+                val clientId = json.optString("client_id", "")
+                val clientSecret = json.optString("client_secret", "")
+                val tokenUri = json.optString("token_uri", "https://oauth2.googleapis.com/token")
+
+                if (refreshToken.isNotBlank() && clientId.isNotBlank()) {
+                    val formBuilder = FormBody.Builder()
+                        .add("client_id", clientId)
+                        .add("grant_type", "refresh_token")
+                        .add("refresh_token", refreshToken)
+
+                    if (clientSecret.isNotBlank()) {
+                        formBuilder.add("client_secret", clientSecret)
+                    }
+
+                    val req = Request.Builder()
+                        .url(tokenUri)
+                        .post(formBuilder.build())
+                        .header("Accept", "application/json")
+                        .build()
+
+                    client.newCall(req).execute().use { resp ->
+                        val respBody = resp.body?.string() ?: ""
+                        if (resp.isSuccessful) {
+                            val respJson = JSONObject(respBody)
+                            val newAccessToken = respJson.optString("access_token", "")
+                            if (newAccessToken.isNotBlank()) {
+                                json.put("token", newAccessToken)
+                                json.put("access_token", newAccessToken)
+                                val updatedJson = json.toString()
+                                account.oauthToken = updatedJson
+                                account.tokenOrCookie = newAccessToken
+                                return@withContext newAccessToken
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            return@withContext extractBearerToken(account)
+        }
+
+        /**
          * Formats a raw script (e.g. bash bootstrapper) for safe execution in a Colab notebook cell.
          * Automatically prepends `%%bash\n` if the script contains bash commands and lacks cell magic.
          */
@@ -207,8 +263,6 @@ class ColabApiEngine(
                 .header("Authorization", "Bearer $cleanToken")
                 .header("Accept", "application/json")
                 .header("X-Colab-Client-Agent", "colab-cli")
-                .header("Origin", COLAB_BASE)
-                .header("Referer", "$COLAB_BASE/")
                 .build()
 
             client.newCall(getRequest).execute().use { getResp ->
@@ -243,8 +297,6 @@ class ColabApiEngine(
                     .header("Accept", "application/json")
                     .header("X-Colab-Client-Agent", "colab-cli")
                     .header("X-Goog-Colab-Token", xsrfToken)
-                    .header("Origin", COLAB_BASE)
-                    .header("Referer", "$COLAB_BASE/")
                     .build()
 
                 client.newCall(postRequest).execute().use { postResp ->

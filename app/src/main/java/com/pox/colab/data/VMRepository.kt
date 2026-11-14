@@ -280,7 +280,11 @@ class VMRepository(
             try {
                 val mode = preferences.getRuntimeEngineMode()
                 val account = _accounts.value.find { it.id == target.accountId } ?: _activeAccount.value
-                val token = account?.let { ColabApiEngine.extractBearerToken(it) } ?: ""
+                val token = account?.let {
+                    val freshToken = ColabApiEngine.refreshOAuthTokenIfNeeded(it)
+                    preferences.saveAccounts(_accounts.value)
+                    freshToken
+                } ?: ""
 
                 if (account == null || token.isBlank()) {
                     android.util.Log.e("VMRepository", "Authentication failure: VM ${target.name} ($vmId) has no valid authenticated Google Colab account or OAuth token.")
