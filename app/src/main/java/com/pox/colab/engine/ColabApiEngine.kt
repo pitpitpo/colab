@@ -785,11 +785,6 @@ class ColabApiEngine(
         }
         return list.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
     }
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("listFiles network error: ${e.message}", e))
-        }
-    }
 
     /**
      * Reads a file's string content from the Colab instance via the Jupyter Contents API.
