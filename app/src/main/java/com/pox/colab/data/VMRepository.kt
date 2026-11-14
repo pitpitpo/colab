@@ -282,6 +282,9 @@ class VMRepository(
                 val account = _accounts.value.find { it.id == target.accountId } ?: _activeAccount.value
                 val token = account?.let {
                     val freshToken = ColabApiEngine.refreshOAuthTokenIfNeeded(it)
+                    _accounts.update { list ->
+                        list.map { a -> if (a.id == it.id) it.copy() else a }
+                    }
                     preferences.saveAccounts(_accounts.value)
                     freshToken
                 } ?: ""

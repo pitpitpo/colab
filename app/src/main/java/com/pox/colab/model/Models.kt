@@ -121,8 +121,8 @@ data class ColabAccount(
     val id: String = UUID.randomUUID().toString(),
     val email: String,
     val displayName: String,
-    val tokenOrCookie: String,
-    val oauthToken: String = tokenOrCookie,
+    var tokenOrCookie: String,
+    var oauthToken: String = tokenOrCookie,
     val tier: String = "Free", // "Free" or "Pro"
     val isEnabled: Boolean = true,
     val isActive: Boolean = false,
