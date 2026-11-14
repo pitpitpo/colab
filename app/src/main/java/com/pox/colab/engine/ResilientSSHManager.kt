@@ -266,14 +266,14 @@ class ResilientSSHManager(
 
     private suspend fun attemptConnect() {
         withContext(Dispatchers.IO) {
-            try {
-                val (targetHost, targetPort) = resolveHostAndPort()
-                if (targetHost.isBlank()) {
-                    setConnectionState(SSHConnectionState.DISCONNECTED)
-                    _statusMessage.value = "Tunnel endpoint required"
-                    return@withContext
-                }
+            val (targetHost, targetPort) = resolveHostAndPort()
+            if (targetHost.isBlank()) {
+                setConnectionState(SSHConnectionState.DISCONNECTED)
+                _statusMessage.value = "Tunnel endpoint required"
+                return@withContext
+            }
 
+            try {
                 setConnectionState(SSHConnectionState.CONNECTING)
                 _statusMessage.value = "Connecting to $targetHost:$targetPort..."
                 appendSystemNotice("[*] Connecting to $targetHost:$targetPort...")
