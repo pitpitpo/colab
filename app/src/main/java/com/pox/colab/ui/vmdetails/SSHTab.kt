@@ -145,7 +145,8 @@ class ConsoleSessionHolder(
 
     fun connectIfNeeded() {
         val session = activeSession ?: return
-        if (session.manager.connectionState.value == SSHConnectionState.DISCONNECTED) {
+        val state = session.manager.connectionState.value
+        if (state == SSHConnectionState.DISCONNECTED || state == SSHConnectionState.ERROR) {
             session.manager.connect()
         }
     }

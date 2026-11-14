@@ -230,7 +230,7 @@ fun FilesTab(
                     }
                 }
 
-                IconButton(onClick = { fileEngine.refreshDirectory() }) {
+                IconButton(onClick = { fileEngine.refreshDirectory(forceRefresh = true) }) {
                     Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh files")
                 }
 

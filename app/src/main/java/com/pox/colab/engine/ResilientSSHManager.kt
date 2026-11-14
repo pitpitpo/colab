@@ -83,10 +83,18 @@ class ResilientSSHManager(
     }
 
     fun resolveHostAndPort(): Pair<String, Int> {
-        val raw = if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost") {
-            "${vm.sshConfig.host}:${vm.sshConfig.port}"
+        val latestVm = try {
+            com.pox.colab.ColabApp.instance.repository.getVMById(vm.id) ?: vm
+        } catch (_: Exception) {
+            vm
+        }
+        vm = latestVm
+        val raw = if (!latestVm.tunnelUrl.isNullOrBlank()) {
+            latestVm.tunnelUrl
+        } else if (latestVm.sshConfig.host.isNotBlank() && latestVm.sshConfig.host != "localhost") {
+            "${latestVm.sshConfig.host}:${latestVm.sshConfig.port}"
         } else {
-            vm.tunnelUrl ?: ""
+            ""
         }
         return VMRepository.parseEndpoint(raw)
     }
@@ -237,7 +245,8 @@ class ResilientSSHManager(
                 attemptConnect()
             }
 
-            delay((vm.sshConfig.keepAliveIntervalSec * 1000L).coerceAtLeast(4000L))
+            val isConn = _connectionState.value == SSHConnectionState.CONNECTED
+            delay(if (isConn) (vm.sshConfig.keepAliveIntervalSec * 1000L).coerceAtLeast(3000L) else 2000L)
 
             if (_connectionState.value == SSHConnectionState.CONNECTED) {
                 checkConnectionHealth()
@@ -284,8 +293,8 @@ class ResilientSSHManager(
                 }
                 session.setConfig("StrictHostKeyChecking", "no")
                 session.setConfig("PreferredAuthentications", "password,publickey,keyboard-interactive")
-                session.setServerAliveInterval(vm.sshConfig.keepAliveIntervalSec * 1000)
-                session.setServerAliveCountMax(999)
+                session.setServerAliveInterval(5000)
+                session.setServerAliveCountMax(3)
                 session.timeout = 10000
 
                 session.connect(10000)
@@ -317,6 +326,64 @@ class ResilientSSHManager(
                 startStreamReader(inputStream)
 
             } catch (e: Exception) {
+                // Autonomous dynamic tunnel re-synchronization:
+                // Check if the Colab daemon published an updated tunnel endpoint in metrics
+                try {
+                    val repo = com.pox.colab.ColabApp.instance.repository
+                    val runtime = repo.getActiveRuntime(vm.id) ?: repo.resolveActiveRuntime(vm.id)
+                    if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                        val metrics = ColabApiEngine.getInstance().fetchMetrics(runtime).getOrNull()
+                        if (metrics != null && !metrics.tunnelEndpoint.isNullOrBlank() && metrics.tunnelEndpoint != vm.tunnelUrl) {
+                            appendSystemNotice("[~] Dynamic tunnel change detected: ${metrics.tunnelEndpoint}")
+                            repo.updateTunnelEndpoint(vm.id, metrics.tunnelEndpoint)
+                            val (newH, newP) = resolveHostAndPort()
+                            if (newH.isNotBlank() && (newH != targetHost || newP != targetPort)) {
+                                appendSystemNotice("[*] Retrying with updated endpoint $newH:$newP...")
+                                val retrySession = jsch.getSession(vm.sshConfig.username, newH, newP)
+                                if (vm.sshConfig.authMethod == SSHAuthMethod.PASSWORD) {
+                                    retrySession.setPassword(vm.sshConfig.password)
+                                } else if (vm.sshConfig.authMethod == SSHAuthMethod.PUBLIC_KEY) {
+                                    val key = vm.sshConfig.privateKey
+                                    if (!key.isNullOrBlank()) {
+                                        try {
+                                            jsch.addIdentity("vm_${vm.id}_key", key.toByteArray(StandardCharsets.UTF_8), null, null)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                                retrySession.setConfig("StrictHostKeyChecking", "no")
+                                retrySession.setConfig("PreferredAuthentications", "password,publickey,keyboard-interactive")
+                                retrySession.setServerAliveInterval(5000)
+                                retrySession.setServerAliveCountMax(3)
+                                retrySession.timeout = 10000
+                                retrySession.connect(10000)
+                                jschSession = retrySession
+
+                                val retryChannel = retrySession.openChannel("shell") as ChannelShell
+                                retryChannel.setPtyType("xterm-256color")
+                                val retryOut = retryChannel.outputStream
+                                val retryIn = retryChannel.inputStream
+                                retryChannel.connect(5000)
+                                shellChannel = retryChannel
+                                shellOutputStream = retryOut
+
+                                setConnectionState(SSHConnectionState.CONNECTED)
+                                _statusMessage.value = "Connected"
+                                val tmuxName = tmuxSessionOverride ?: vm.sshConfig.tmuxSessionName
+                                if (vm.sshConfig.resilientProtocol == ResilientProtocol.TMUX_SSH) {
+                                    appendSystemNotice("[+] Attached to persistent tmux session: '$tmuxName'")
+                                    val attachCmd = "tmux new-session -A -s $tmuxName\n"
+                                    retryOut.write(attachCmd.toByteArray())
+                                    retryOut.flush()
+                                } else {
+                                    appendSystemNotice("[+] Interactive SSH2 shell established.")
+                                }
+                                startStreamReader(retryIn)
+                                return@withContext
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+
                 setConnectionState(SSHConnectionState.ERROR)
                 _statusMessage.value = "Connection failed: ${e.message ?: "Host unreachable"}"
                 appendSystemNotice("[!] Connection failed: ${e.message ?: "Host unreachable"}")

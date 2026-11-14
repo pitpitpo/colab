@@ -109,7 +109,7 @@ fun DashboardTab(
                 val metrics = metricsResult.getOrNull()
                 if (metrics != null && metrics.timestamp > 0L) {
                     repository.updateMetrics(vm.id, metrics)
-                    if (vm.tunnelUrl.isNullOrBlank() && !metrics.tunnelEndpoint.isNullOrBlank()) {
+                    if (!metrics.tunnelEndpoint.isNullOrBlank() && metrics.tunnelEndpoint != vm.tunnelUrl) {
                         repository.updateTunnelEndpoint(vm.id, metrics.tunnelEndpoint)
                     }
                 }

@@ -46,16 +46,30 @@ class FileManagerEngine(
     private var sftpChannel: ChannelSftp? = null
     private val jsch = JSch()
 
+    private val dirCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<RemoteFile>>>()
+    private val CACHE_TTL_MS = 30_000L
+
     init {
         refreshDirectory(_currentPath.value)
     }
 
-    fun resolveHostAndPort(): Pair<String, Int> {
-        val raw: String = if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost") {
-            "${vm.sshConfig.host}:${vm.sshConfig.port}"
+    fun invalidateCache(path: String? = null) {
+        if (path == null) {
+            dirCache.clear()
         } else {
-            val repoEp = try { com.pox.colab.ColabApp.instance.repository.getVMById(vm.id)?.tunnelUrl } catch (_: Exception) { null }
-            if (!repoEp.isNullOrBlank()) repoEp else (vm.tunnelUrl ?: "")
+            dirCache.remove(normalizePath(path))
+        }
+    }
+
+    fun resolveHostAndPort(): Pair<String, Int> {
+        val latestVm = try { com.pox.colab.ColabApp.instance.repository.getVMById(vm.id) ?: vm } catch (_: Exception) { vm }
+        vm = latestVm
+        val raw: String = if (!latestVm.tunnelUrl.isNullOrBlank()) {
+            latestVm.tunnelUrl
+        } else if (latestVm.sshConfig.host.isNotBlank() && latestVm.sshConfig.host != "localhost") {
+            "${latestVm.sshConfig.host}:${latestVm.sshConfig.port}"
+        } else {
+            ""
         }
         return VMRepository.parseEndpoint(raw)
     }
@@ -133,7 +147,17 @@ class FileManagerEngine(
         navigateTo(if (parent.isEmpty()) "/" else parent)
     }
 
-    fun refreshDirectory(path: String = _currentPath.value) {
+    fun refreshDirectory(path: String = _currentPath.value, forceRefresh: Boolean = false) {
+        val targetPath = normalizePath(path)
+        val cached = dirCache[targetPath]
+        val now = System.currentTimeMillis()
+        if (!forceRefresh && cached != null && (now - cached.first) < CACHE_TTL_MS) {
+            _files.value = cached.second
+            _statusNotice.value = null
+            _isLoading.value = false
+            return
+        }
+
         _isLoading.value = true
         scope.launch(Dispatchers.IO) {
             try {
@@ -141,9 +165,11 @@ class FileManagerEngine(
                 val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
 
                 if (runtime != null && runtime.endpointUrl.isNotBlank()) {
-                    val result = ColabApiEngine.getInstance().listFiles(runtime, path)
+                    val result = ColabApiEngine.getInstance().listFiles(runtime, targetPath)
                     if (result.isSuccess) {
-                        _files.value = result.getOrNull() ?: emptyList()
+                        val list = result.getOrNull() ?: emptyList()
+                        dirCache[targetPath] = Pair(System.currentTimeMillis(), list)
+                        _files.value = list
                         _statusNotice.value = null
                         _isLoading.value = false
                         return@launch
@@ -153,13 +179,12 @@ class FileManagerEngine(
                 val (host, _) = resolveHostAndPort()
                 if (host.isBlank()) {
                     _statusNotice.value = "Remote Disconnected. Tunnel endpoint or Colab runtime not active."
-                    _files.value = emptyList()
+                    if (cached == null) _files.value = emptyList()
                     _isLoading.value = false
                     return@launch
                 }
 
                 val sftp = getConnectedSftp()
-                val targetPath = normalizePath(path)
                 @Suppress("UNCHECKED_CAST")
                 val vector = sftp.ls(targetPath) as Vector<ChannelSftp.LsEntry>
                 val resultList = mutableListOf<RemoteFile>()
@@ -183,11 +208,15 @@ class FileManagerEngine(
                     )
                 }
 
-                _files.value = resultList.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                val sorted = resultList.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                dirCache[targetPath] = Pair(System.currentTimeMillis(), sorted)
+                _files.value = sorted
                 _statusNotice.value = null
             } catch (e: Exception) {
+                if (cached == null) {
+                    _files.value = emptyList()
+                }
                 _statusNotice.value = "Filesystem error: ${e.message ?: "Failed to list directory"}"
-                _files.value = emptyList()
             } finally {
                 _isLoading.value = false
             }
@@ -264,7 +293,8 @@ class FileManagerEngine(
         if (runtime != null && runtime.endpointUrl.isNotBlank()) {
             val res = ColabApiEngine.getInstance().writeFile(runtime, targetPath, content)
             if (res.isSuccess) {
-                refreshDirectory(current)
+                invalidateCache(current)
+                refreshDirectory(current, forceRefresh = true)
                 _statusNotice.value = "Saved: $name"
                 return@withContext Result.success(
                     RemoteFile(
@@ -284,7 +314,8 @@ class FileManagerEngine(
             ByteArrayInputStream(bytes).use { inStream ->
                 sftp.put(inStream, targetPath)
             }
-            refreshDirectory(current)
+            invalidateCache(current)
+            refreshDirectory(current, forceRefresh = true)
             _statusNotice.value = "Uploaded: $name"
             Result.success(
                 RemoteFile(
@@ -308,7 +339,8 @@ class FileManagerEngine(
             if (runtime != null && runtime.endpointUrl.isNotBlank()) {
                 val res = ColabApiEngine.getInstance().createDirectory(runtime, _currentPath.value, name)
                 if (res.isSuccess) {
-                    refreshDirectory(_currentPath.value)
+                    invalidateCache(_currentPath.value)
+                    refreshDirectory(_currentPath.value, forceRefresh = true)
                     _statusNotice.value = "Folder created: $name"
                     return@launch
                 }
@@ -319,7 +351,8 @@ class FileManagerEngine(
                 val current = _currentPath.value
                 val targetPath = if (current.endsWith("/")) "$current$name" else "$current/$name"
                 sftp.mkdir(targetPath)
-                refreshDirectory(current)
+                invalidateCache(current)
+                refreshDirectory(current, forceRefresh = true)
                 _statusNotice.value = "Folder created: $name"
             } catch (e: Exception) {
                 _statusNotice.value = "Create folder failed: ${e.message}"
@@ -334,7 +367,8 @@ class FileManagerEngine(
             if (runtime != null && runtime.endpointUrl.isNotBlank()) {
                 val res = ColabApiEngine.getInstance().deleteFile(runtime, file.path)
                 if (res.isSuccess) {
-                    refreshDirectory(_currentPath.value)
+                    invalidateCache(_currentPath.value)
+                    refreshDirectory(_currentPath.value, forceRefresh = true)
                     _statusNotice.value = "Deleted: ${file.name}"
                     return@launch
                 }
@@ -347,7 +381,8 @@ class FileManagerEngine(
                 } else {
                     sftp.rm(file.path)
                 }
-                refreshDirectory(_currentPath.value)
+                invalidateCache(_currentPath.value)
+                refreshDirectory(_currentPath.value, forceRefresh = true)
                 _statusNotice.value = "Deleted: ${file.name}"
             } catch (e: Exception) {
                 _statusNotice.value = "Delete failed: ${e.message}"
@@ -362,7 +397,8 @@ class FileManagerEngine(
             if (runtime != null && runtime.endpointUrl.isNotBlank()) {
                 val res = ColabApiEngine.getInstance().renameFile(runtime, file.path, newName)
                 if (res.isSuccess) {
-                    refreshDirectory(_currentPath.value)
+                    invalidateCache(_currentPath.value)
+                    refreshDirectory(_currentPath.value, forceRefresh = true)
                     _statusNotice.value = "Renamed to: $newName"
                     return@launch
                 }
@@ -373,7 +409,8 @@ class FileManagerEngine(
                 val parent = file.path.substringBeforeLast('/', "")
                 val targetPath = if (parent.isEmpty()) "/$newName" else "$parent/$newName"
                 sftp.rename(file.path, targetPath)
-                refreshDirectory(_currentPath.value)
+                invalidateCache(_currentPath.value)
+                refreshDirectory(_currentPath.value, forceRefresh = true)
                 _statusNotice.value = "Renamed to: $newName"
             } catch (e: Exception) {
                 _statusNotice.value = "Rename failed: ${e.message}"

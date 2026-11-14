@@ -336,60 +336,76 @@ class VMRepository(
                 val executeNativeApi: suspend () -> Unit = {
                     val accelerator = mapToColabAccelerator(target.hardwareAccelerator)
 
-                    // Check for existing active Colab assignment on this account (fast reconnect)
-                    val existingList = colabApiEngine.listAssignments(token).getOrNull()
-                    val activeRuntime = existingList?.firstOrNull { it.sessionId.isNotBlank() }
+                    // 1. Check in-memory active runtime cache
+                    var runtime: ColabRuntime? = getActiveRuntime(vmId)
 
-                    val runtimeResult = if (activeRuntime != null) {
-                        Result.success(activeRuntime)
-                    } else {
-                        colabApiEngine.allocateRuntime(token, accelerator)
+                    // 2. If not cached, check existing Colab assignments with auto-retry
+                    if (runtime == null || runtime.endpointUrl.isBlank()) {
+                        for (retry in 1..3) {
+                            val existingList = colabApiEngine.listAssignments(token).getOrNull()
+                            val found = existingList?.firstOrNull { it.sessionId.isNotBlank() }
+                            if (found != null) {
+                                runtime = found
+                                break
+                            }
+                            if (retry < 3) kotlinx.coroutines.delay(1000L * retry)
+                        }
                     }
 
-                    runtimeResult.fold(
-                        onSuccess = { runtime ->
-                            setActiveRuntime(vmId, runtime)
-                            val current = getVMById(vmId)
-                            if (current != null) {
-                                val assignedUrl = runtime.endpointUrl.ifBlank { "https://colab.research.google.com/tun/m/${runtime.sessionId}" }
-                                updateVM(current.copy(
-                                    status = VMStatus.STARTING,
-                                    tunnelUrl = current.tunnelUrl?.takeIf { it.isNotBlank() } ?: assignedUrl
-                                ))
+                    // 3. If still no active runtime, allocate with auto-retry
+                    if (runtime == null || runtime.endpointUrl.isBlank()) {
+                        for (retry in 1..3) {
+                            val allocResult = colabApiEngine.allocateRuntime(token, accelerator)
+                            if (allocResult.isSuccess) {
+                                runtime = allocResult.getOrNull()
+                                break
                             }
+                            if (retry < 3) kotlinx.coroutines.delay(1500L * retry)
+                        }
+                    }
 
+                    if (runtime != null) {
+                        setActiveRuntime(vmId, runtime)
+                        val current = getVMById(vmId)
+                        if (current != null) {
+                            val assignedUrl = runtime.endpointUrl.ifBlank { "https://colab.research.google.com/tun/m/${runtime.sessionId}" }
+                            updateVM(current.copy(
+                                status = VMStatus.STARTING,
+                                tunnelUrl = current.tunnelUrl?.takeIf { it.isNotBlank() } ?: assignedUrl
+                            ))
+                        }
+
+                        // 4. Run bootstrap script with auto-retry (up to 3 attempts with backoff)
+                        var bootstrapSuccess = false
+                        for (attempt in 1..3) {
                             val result = colabApiEngine.runBootstrapScript(
                                 bearerToken = token,
                                 runtime = runtime,
                                 bootstrapScript = bootstrapScript
                             )
-
-                            result.fold(
-                                onSuccess = { (_, execResult) ->
-                                    val cur = getVMById(vmId)
-                                    if (cur != null) {
-                                        if (execResult.success || cur.tunnelUrl?.isNotBlank() == true) {
-                                            updateVM(cur.copy(status = VMStatus.RUNNING))
-                                        } else if (execResult.httpStatus >= 400) {
-                                            if (cur.status != VMStatus.RUNNING && cur.tunnelUrl.isNullOrBlank()) {
-                                                updateVM(cur.copy(status = VMStatus.ERROR))
-                                            }
-                                        }
-                                    }
-                                },
-                                onFailure = {
-                                    // Keep STARTING while tunnel discovery is listening
+                            if (result.isSuccess) {
+                                val (_, execResult) = result.getOrThrow()
+                                if (execResult.success || execResult.httpStatus == 200) {
+                                    bootstrapSuccess = true
+                                    break
                                 }
-                            )
-                        },
-                        onFailure = { allocErr ->
-                            android.util.Log.e("VMRepository", "Colab allocation failed: ${allocErr.message}", allocErr)
-                            val current = getVMById(vmId)
-                            if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
-                                updateVM(current.copy(status = VMStatus.ERROR))
+                            }
+                            if (attempt < 3) kotlinx.coroutines.delay(2000L * attempt)
+                        }
+
+                        val cur = getVMById(vmId)
+                        if (cur != null) {
+                            if (bootstrapSuccess || cur.tunnelUrl?.isNotBlank() == true) {
+                                updateVM(cur.copy(status = VMStatus.RUNNING))
                             }
                         }
-                    )
+                    } else {
+                        android.util.Log.e("VMRepository", "Colab allocation failed after retries for VM $vmId")
+                        val current = getVMById(vmId)
+                        if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
+                            updateVM(current.copy(status = VMStatus.ERROR))
+                        }
+                    }
                 }
 
                 when (mode) {

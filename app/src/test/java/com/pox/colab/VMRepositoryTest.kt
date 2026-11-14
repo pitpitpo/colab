@@ -41,6 +41,28 @@ class VMRepositoryTest {
     }
 
     @Test
+    fun parseEndpoint_boreDynamicPort() {
+        val (host, port) = VMRepository.parseEndpoint("bore.pub:1380")
+        assertEquals("bore.pub", host)
+        assertEquals(1380, port)
+
+        val (hostUpdated, portUpdated) = VMRepository.parseEndpoint("bore.pub:38429")
+        assertEquals("bore.pub", hostUpdated)
+        assertEquals(38429, portUpdated)
+    }
+
+    @Test
+    fun parseEndpoint_stripHttpHttpsPrefix() {
+        val (host1, port1) = VMRepository.parseEndpoint("https://tunnel.example.org:8443")
+        assertEquals("tunnel.example.org", host1)
+        assertEquals(8443, port1)
+
+        val (host2, port2) = VMRepository.parseEndpoint("http://tunnel.example.org")
+        assertEquals("tunnel.example.org", host2)
+        assertEquals(22, port2)
+    }
+
+    @Test
     fun runtimeEngineMode_enumProperties() {
         val nativeMode = RuntimeEngineMode.NATIVE_API
         assertEquals("NATIVE_API", nativeMode.name)
