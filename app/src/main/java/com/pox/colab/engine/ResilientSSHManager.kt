@@ -106,7 +106,7 @@ class ResilientSSHManager(
                 var discoveredEndpoint: String? = null
                 for (attempt in 1..120) {
                     if (!isActive || isUserIntentionallyDisconnected) break
-                    val repoEp = try { com.pox.colab.ColabApp.instance.repository.getVM(vm.id)?.tunnelUrl } catch (_: Exception) { null }
+                    val repoEp = try { com.pox.colab.ColabApp.instance.repository.getVMById(vm.id)?.tunnelUrl } catch (_: Exception) { null }
                     val ep = if (!repoEp.isNullOrBlank()) repoEp else TunnelDiscoveryEngine.pollDiscoveredEndpoint(vm.id)
                     if (!ep.isNullOrBlank()) {
                         discoveredEndpoint = ep

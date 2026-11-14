@@ -51,10 +51,10 @@ class FileManagerEngine(
     }
 
     fun resolveHostAndPort(): Pair<String, Int> {
-        val raw = if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost") {
+        val raw: String = if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost") {
             "${vm.sshConfig.host}:${vm.sshConfig.port}"
         } else {
-            val repoEp = try { com.pox.colab.ColabApp.instance.repository.getVM(vm.id)?.tunnelUrl } catch (_: Exception) { null }
+            val repoEp = try { com.pox.colab.ColabApp.instance.repository.getVMById(vm.id)?.tunnelUrl } catch (_: Exception) { null }
             if (!repoEp.isNullOrBlank()) repoEp else (vm.tunnelUrl ?: "")
         }
         return VMRepository.parseEndpoint(raw)
@@ -62,7 +62,7 @@ class FileManagerEngine(
 
     fun hasDirectRuntime(): Boolean {
         val repo = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
-        val rt = repo?.getActiveRuntime(vm.id) ?: repo?.resolveActiveRuntime(vm.id)
+        val rt = repo?.getActiveRuntime(vm.id)
         return rt != null && rt.endpointUrl.isNotBlank()
     }
 

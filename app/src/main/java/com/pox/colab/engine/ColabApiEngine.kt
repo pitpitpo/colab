@@ -914,7 +914,7 @@ class ColabApiEngine(
                 if (response.code == 400) {
                     // Could be a non-empty directory, fallback to rm -rf via kernel execution
                     val fullShellPath = if (cleanPath.startsWith("/")) cleanPath else "/$cleanPath"
-                    val fallbackRes = runCode(runtime, "!rm -rf '$fullShellPath'")
+                    val fallbackRes = runCode(runtime.proxyToken, runtime, "!rm -rf '$fullShellPath'")
                     if (fallbackRes.isSuccess) {
                         return@withContext Result.success(Unit)
                     }
