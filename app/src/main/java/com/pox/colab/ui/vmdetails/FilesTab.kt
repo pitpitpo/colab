@@ -106,6 +106,7 @@ fun FilesTab(
 
     val (host, _) = fileEngine.resolveHostAndPort()
     val hasTunnel = host.isNotBlank()
+    val hasDirectRuntime = remember(vm.id) { fileEngine.hasDirectRuntime() }
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedFileForPreview by remember { mutableStateOf<RemoteFile?>(null) }
@@ -127,7 +128,7 @@ fun FilesTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (!hasTunnel) {
+        if (!hasTunnel && !hasDirectRuntime) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier

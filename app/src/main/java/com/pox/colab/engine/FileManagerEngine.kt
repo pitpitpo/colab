@@ -54,9 +54,16 @@ class FileManagerEngine(
         val raw = if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost") {
             "${vm.sshConfig.host}:${vm.sshConfig.port}"
         } else {
-            vm.tunnelUrl ?: ""
+            val repoEp = try { com.pox.colab.ColabApp.instance.repository.getVM(vm.id)?.tunnelUrl } catch (_: Exception) { null }
+            if (!repoEp.isNullOrBlank()) repoEp else (vm.tunnelUrl ?: "")
         }
         return VMRepository.parseEndpoint(raw)
+    }
+
+    fun hasDirectRuntime(): Boolean {
+        val repo = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+        val rt = repo?.getActiveRuntime(vm.id) ?: repo?.resolveActiveRuntime(vm.id)
+        return rt != null && rt.endpointUrl.isNotBlank()
     }
 
     private suspend fun getConnectedSftp(): ChannelSftp = withContext(Dispatchers.IO) {
@@ -296,6 +303,17 @@ class FileManagerEngine(
 
     fun createFolder(name: String) {
         scope.launch(Dispatchers.IO) {
+            val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+            val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+            if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                val res = ColabApiEngine.getInstance().createDirectory(runtime, _currentPath.value, name)
+                if (res.isSuccess) {
+                    refreshDirectory(_currentPath.value)
+                    _statusNotice.value = "Folder created: $name"
+                    return@launch
+                }
+            }
+
             try {
                 val sftp = getConnectedSftp()
                 val current = _currentPath.value
@@ -339,6 +357,17 @@ class FileManagerEngine(
 
     fun renameFile(file: RemoteFile, newName: String) {
         scope.launch(Dispatchers.IO) {
+            val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+            val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+            if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                val res = ColabApiEngine.getInstance().renameFile(runtime, file.path, newName)
+                if (res.isSuccess) {
+                    refreshDirectory(_currentPath.value)
+                    _statusNotice.value = "Renamed to: $newName"
+                    return@launch
+                }
+            }
+
             try {
                 val sftp = getConnectedSftp()
                 val parent = file.path.substringBeforeLast('/', "")

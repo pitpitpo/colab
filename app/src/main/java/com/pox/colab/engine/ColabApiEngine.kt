@@ -908,14 +908,141 @@ class ColabApiEngine(
                 .build()
 
             client.newCall(req).execute().use { response ->
-                if (!response.isSuccessful && response.code != 404) {
+                if (response.isSuccessful || response.code == 404 || response.code in 200..204) {
+                    return@withContext Result.success(Unit)
+                }
+                if (response.code == 400) {
+                    // Could be a non-empty directory, fallback to rm -rf via kernel execution
+                    val fullShellPath = if (cleanPath.startsWith("/")) cleanPath else "/$cleanPath"
+                    val fallbackRes = runCode(runtime, "!rm -rf '$fullShellPath'")
+                    if (fallbackRes.isSuccess) {
+                        return@withContext Result.success(Unit)
+                    }
+                }
+                val rawBody = response.body?.string() ?: ""
+                return@withContext Result.failure(Exception("deleteFile failed (HTTP ${response.code}): $rawBody"))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("deleteFile network error: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Creates a new directory on the Colab instance via the Jupyter Contents API.
+     * Uses POST /api/contents/<parent> with {"type": "directory"} followed by
+     * PATCH /api/contents/<created_path> to rename it to [folderName].
+     */
+    suspend fun createDirectory(
+        runtime: ColabRuntime,
+        parentPath: String,
+        folderName: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = runtime.endpointUrl.trimEnd('/')
+            if (endpoint.isBlank()) return@withContext Result.failure(Exception("endpointUrl is blank"))
+            val cleanParent = parentPath.trim().trimStart('/')
+            val postUrl = if (cleanParent.isEmpty()) "$endpoint/api/contents" else "$endpoint/api/contents/$cleanParent"
+
+            val postPayload = JSONObject().apply {
+                put("type", "directory")
+            }
+
+            val postReq = Request.Builder()
+                .url(postUrl)
+                .post(postPayload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                    header("Accept", "application/json")
+                }
+                .build()
+
+            val createdPath: String = client.newCall(postReq).execute().use { response ->
+                if (!response.isSuccessful) {
                     val rawBody = response.body?.string() ?: ""
-                    return@withContext Result.failure(Exception("deleteFile failed (HTTP ${response.code}): $rawBody"))
+                    return@withContext Result.failure(Exception("createDirectory failed (HTTP ${response.code}): $rawBody"))
+                }
+                val body = response.body?.string() ?: ""
+                val json = JSONObject(body)
+                json.optString("path", "Untitled Folder")
+            }
+
+            val targetPath = if (cleanParent.isEmpty()) folderName else "$cleanParent/$folderName"
+            val patchUrl = "$endpoint/api/contents/$createdPath"
+            val patchPayload = JSONObject().apply {
+                put("path", targetPath)
+            }
+
+            val patchReq = Request.Builder()
+                .url(patchUrl)
+                .patch(patchPayload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                    header("Accept", "application/json")
+                }
+                .build()
+
+            client.newCall(patchReq).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val rawBody = response.body?.string() ?: ""
+                    return@withContext Result.failure(Exception("rename directory failed (HTTP ${response.code}): $rawBody"))
                 }
                 Result.success(Unit)
             }
         } catch (e: Exception) {
-            Result.failure(Exception("deleteFile network error: ${e.message}", e))
+            Result.failure(Exception("createDirectory network error: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Renames a file or directory on the Colab instance via the Jupyter Contents API.
+     */
+    suspend fun renameFile(
+        runtime: ColabRuntime,
+        oldPath: String,
+        newName: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = runtime.endpointUrl.trimEnd('/')
+            if (endpoint.isBlank()) return@withContext Result.failure(Exception("endpointUrl is blank"))
+            val cleanOld = oldPath.trim().trimStart('/')
+            val parent = cleanOld.substringBeforeLast('/', "")
+            val targetPath = if (parent.isEmpty()) newName else "$parent/$newName"
+
+            val url = "$endpoint/api/contents/$cleanOld"
+            val payload = JSONObject().apply {
+                put("path", targetPath)
+            }
+
+            val req = Request.Builder()
+                .url(url)
+                .patch(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                    header("Accept", "application/json")
+                }
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val rawBody = response.body?.string() ?: ""
+                    return@withContext Result.failure(Exception("renameFile failed (HTTP ${response.code}): $rawBody"))
+                }
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("renameFile network error: ${e.message}", e))
         }
     }
 

@@ -511,4 +511,11 @@ class ColabApiEngineTest {
         assertEquals("5142", ccu.remainingTokens)
         assertEquals(1794684556L, ccu.nextRefillTimestampSec)
     }
+
+    @Test
+    fun parseContentsList_handlesEmptyAndMalformedJson() {
+        assertEquals(0, engine.parseContentsList("").size)
+        assertEquals(0, engine.parseContentsList("{}").size)
+        assertEquals(0, engine.parseContentsList("invalid json string").size)
+    }
 }
