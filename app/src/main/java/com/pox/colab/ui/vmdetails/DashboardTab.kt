@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pox.colab.data.VMRepository
+import com.pox.colab.engine.ColabApiEngine
 import com.pox.colab.engine.TelemetryEngine
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.VMStatus
@@ -99,16 +100,26 @@ fun DashboardTab(
         }
     }
 
-    // Real HTTP Telemetry Polling worker via OkHttp
+    // Real-Time Telemetry Polling: Queries native Colab REST metrics daemon with HTTP fallback
     LaunchedEffect(vm.id, host, port, vm.status) {
-        if (hasTunnel) {
-            while (isActive) {
+        while (isActive) {
+            val runtime = repository.getActiveRuntime(vm.id) ?: repository.resolveActiveRuntime(vm.id)
+            if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                val metricsResult = ColabApiEngine.getInstance().fetchMetrics(runtime)
+                val metrics = metricsResult.getOrNull()
+                if (metrics != null && metrics.timestamp > 0L) {
+                    repository.updateMetrics(vm.id, metrics)
+                    if (vm.tunnelUrl.isNullOrBlank() && !metrics.tunnelEndpoint.isNullOrBlank()) {
+                        repository.updateTunnelEndpoint(vm.id, metrics.tunnelEndpoint)
+                    }
+                }
+            } else if (hasTunnel) {
                 val httpMetrics = TelemetryEngine.fetchHttpMetrics(host)
                 if (httpMetrics != null) {
                     repository.updateMetrics(vm.id, httpMetrics)
                 }
-                delay(6000L)
             }
+            delay(4000L)
         }
     }
 

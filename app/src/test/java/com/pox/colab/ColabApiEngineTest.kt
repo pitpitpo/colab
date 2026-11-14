@@ -439,4 +439,47 @@ class ColabApiEngineTest {
         assertEquals(ColabAccelerator.V100, HardwareAccelerator.V100.toColabAccelerator())
         assertEquals(ColabAccelerator.A100, HardwareAccelerator.A100.toColabAccelerator())
     }
+
+    @Test
+    fun parseContentsList_parsesJupyterDirectoryAndFileEntries() {
+        val json = """
+            {
+              "name": "content",
+              "path": "content",
+              "type": "directory",
+              "content": [
+                {
+                  "name": "agent.py",
+                  "path": "content/agent.py",
+                  "type": "file",
+                  "size": 3659,
+                  "last_modified": "2026-11-14T05:38:00Z"
+                },
+                {
+                  "name": "sample_data",
+                  "path": "content/sample_data",
+                  "type": "directory",
+                  "size": null,
+                  "last_modified": "2026-11-12T16:40:00Z"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val files = engine.parseContentsList(json)
+        assertEquals(2, files.size)
+
+        // Directories sorted before files
+        val dir = files[0]
+        assertEquals("sample_data", dir.name)
+        assertEquals("/content/sample_data", dir.path)
+        assertTrue(dir.isDirectory)
+
+        val file = files[1]
+        assertEquals("agent.py", file.name)
+        assertEquals("/content/agent.py", file.path)
+        assertFalse(file.isDirectory)
+        assertEquals(3659L, file.sizeBytes)
+        assertEquals("2026-11-14T05:38:00Z", file.modifiedTime)
+    }
 }

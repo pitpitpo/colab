@@ -127,16 +127,30 @@ class FileManagerEngine(
     }
 
     fun refreshDirectory(path: String = _currentPath.value) {
-        val (host, _) = resolveHostAndPort()
-        if (host.isBlank()) {
-            _statusNotice.value = "Remote SFTP Disconnected. Please configure tunnel host in Dashboard."
-            _files.value = emptyList()
-            return
-        }
-
         _isLoading.value = true
         scope.launch(Dispatchers.IO) {
             try {
+                val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+                val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+
+                if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                    val result = ColabApiEngine.getInstance().listFiles(runtime, path)
+                    if (result.isSuccess) {
+                        _files.value = result.getOrNull() ?: emptyList()
+                        _statusNotice.value = null
+                        _isLoading.value = false
+                        return@launch
+                    }
+                }
+
+                val (host, _) = resolveHostAndPort()
+                if (host.isBlank()) {
+                    _statusNotice.value = "Remote Disconnected. Tunnel endpoint or Colab runtime not active."
+                    _files.value = emptyList()
+                    _isLoading.value = false
+                    return@launch
+                }
+
                 val sftp = getConnectedSftp()
                 val targetPath = normalizePath(path)
                 @Suppress("UNCHECKED_CAST")
@@ -163,8 +177,9 @@ class FileManagerEngine(
                 }
 
                 _files.value = resultList.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                _statusNotice.value = null
             } catch (e: Exception) {
-                _statusNotice.value = "SFTP: ${e.message ?: "Failed to list directory"}"
+                _statusNotice.value = "Filesystem error: ${e.message ?: "Failed to list directory"}"
                 _files.value = emptyList()
             } finally {
                 _isLoading.value = false
@@ -173,6 +188,15 @@ class FileManagerEngine(
     }
 
     suspend fun readFileContent(file: RemoteFile): String = withContext(Dispatchers.IO) {
+        val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+        val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+        if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+            val res = ColabApiEngine.getInstance().readFile(runtime, file.path)
+            if (res.isSuccess) {
+                return@withContext res.getOrNull()?.ifEmpty { "[Empty File]" } ?: "[Empty File]"
+            }
+        }
+
         try {
             val sftp = getConnectedSftp()
             val out = java.io.ByteArrayOutputStream()
@@ -196,6 +220,20 @@ class FileManagerEngine(
     }
 
     suspend fun downloadFileToDevice(file: RemoteFile): Result<File> = withContext(Dispatchers.IO) {
+        val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+        val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+        if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+            val res = ColabApiEngine.getInstance().readFile(runtime, file.path)
+            if (res.isSuccess) {
+                val content = res.getOrNull() ?: ""
+                val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+                val localFile = File(downloadDir, file.name)
+                localFile.writeText(content, Charsets.UTF_8)
+                _statusNotice.value = "Downloaded to: ${localFile.name}"
+                return@withContext Result.success(localFile)
+            }
+        }
+
         try {
             val sftp = getConnectedSftp()
             val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
@@ -212,10 +250,29 @@ class FileManagerEngine(
     }
 
     suspend fun uploadFile(name: String, content: String): Result<RemoteFile> = withContext(Dispatchers.IO) {
+        val current = _currentPath.value
+        val targetPath = if (current.endsWith("/")) "$current$name" else "$current/$name"
+        val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+        val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+        if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+            val res = ColabApiEngine.getInstance().writeFile(runtime, targetPath, content)
+            if (res.isSuccess) {
+                refreshDirectory(current)
+                _statusNotice.value = "Saved: $name"
+                return@withContext Result.success(
+                    RemoteFile(
+                        name = name,
+                        path = targetPath,
+                        isDirectory = false,
+                        sizeBytes = content.toByteArray(Charsets.UTF_8).size.toLong(),
+                        modifiedTimestamp = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+
         try {
             val sftp = getConnectedSftp()
-            val current = _currentPath.value
-            val targetPath = if (current.endsWith("/")) "$current$name" else "$current/$name"
             val bytes = content.toByteArray(Charsets.UTF_8)
             ByteArrayInputStream(bytes).use { inStream ->
                 sftp.put(inStream, targetPath)
@@ -254,6 +311,17 @@ class FileManagerEngine(
 
     fun deleteFile(file: RemoteFile) {
         scope.launch(Dispatchers.IO) {
+            val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+            val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+            if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                val res = ColabApiEngine.getInstance().deleteFile(runtime, file.path)
+                if (res.isSuccess) {
+                    refreshDirectory(_currentPath.value)
+                    _statusNotice.value = "Deleted: ${file.name}"
+                    return@launch
+                }
+            }
+
             try {
                 val sftp = getConnectedSftp()
                 if (file.isDirectory) {

@@ -2,6 +2,8 @@ package com.pox.colab.engine
 
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.HardwareAccelerator
+import com.pox.colab.model.RemoteFile
+import com.pox.colab.model.VMMetrics
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -360,15 +362,23 @@ class ColabApiEngine(
                     if (response.isSuccessful) {
                         try {
                             val array = JSONArray(rawBody)
-                            if (array.length() > 0) {
-                                kernelId = array.getJSONObject(0).optString("id", "")
+                            for (i in 0 until array.length()) {
+                                val k = array.optJSONObject(i) ?: continue
+                                val state = k.optString("execution_state", "")
+                                if (state == "idle") {
+                                    val candidate = k.optString("id", "")
+                                    if (candidate.isNotBlank()) {
+                                        kernelId = candidate
+                                        break
+                                    }
+                                }
                             }
                         } catch (_: Exception) {}
                     }
                 }
             } catch (_: Exception) {}
 
-            // If no existing kernel, create one via POST /api/kernels
+            // If no existing idle kernel, create a dedicated idle kernel via POST /api/kernels
             if (kernelId.isBlank()) {
                 val createReq = Request.Builder()
                     .url(kernelsUrl)
@@ -450,6 +460,7 @@ class ColabApiEngine(
             val deferredResult = CompletableDeferred<CellExecutionResult>()
             val stdoutBuilder = StringBuilder()
             val stderrBuilder = StringBuilder()
+            var hasKernelError = false
 
             val webSocket = client.newWebSocket(wsReq, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -482,6 +493,7 @@ class ColabApiEngine(
                                     }
                                 }
                                 "error" -> {
+                                    hasKernelError = true
                                     val ename = content.optString("ename", "Error")
                                     val evalue = content.optString("evalue", "")
                                     val tbArray = content.optJSONArray("traceback")
@@ -497,7 +509,7 @@ class ColabApiEngine(
                                         if (!deferredResult.isCompleted) {
                                             deferredResult.complete(
                                                 CellExecutionResult(
-                                                    success = stderrBuilder.isEmpty(),
+                                                    success = !hasKernelError,
                                                     stdout = stdoutBuilder.toString().trim(),
                                                     stderr = stderrBuilder.toString().trim(),
                                                     httpStatus = 200,
@@ -698,6 +710,224 @@ class ColabApiEngine(
         } catch (e: Exception) {
             Result.failure(Exception("listAssignments network error: ${e.message}", e))
         }
+    }
+
+    /**
+     * Lists files and subdirectories at [path] using the native Jupyter Contents API on the Colab proxy.
+     */
+    suspend fun listFiles(
+        runtime: ColabRuntime,
+        path: String = "/content"
+    ): Result<List<RemoteFile>> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = runtime.endpointUrl.trimEnd('/')
+            if (endpoint.isBlank()) {
+                return@withContext Result.failure(Exception("endpointUrl is blank"))
+            }
+            val cleanPath = path.trim().trimStart('/')
+            val url = "$endpoint/api/contents/$cleanPath"
+
+            val req = Request.Builder()
+                .url(url)
+                .get()
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                    header("Accept", "application/json")
+                }
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                val rawBody = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("listFiles failed (HTTP ${response.code}): $rawBody"))
+                }
+                Result.success(parseContentsList(rawBody))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("listFiles network error: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Parses the JSON payload from the Jupyter Contents API into a list of [RemoteFile].
+     */
+    internal fun parseContentsList(jsonStr: String): List<RemoteFile> {
+        val json = try { JSONObject(jsonStr) } catch (_: Exception) { return emptyList() }
+        val contentArray = json.optJSONArray("content") ?: JSONArray()
+        val list = mutableListOf<RemoteFile>()
+        for (i in 0 until contentArray.length()) {
+            val item = contentArray.optJSONObject(i) ?: continue
+            val name = item.optString("name", "")
+            val itemPath = "/" + item.optString("path", "").trimStart('/')
+            val type = item.optString("type", "file")
+            val isDir = type == "directory"
+            val size = item.optLong("size", 0L)
+            val lastModifiedStr = item.optString("last_modified", "")
+            val timestamp = try {
+                java.time.Instant.parse(lastModifiedStr).toEpochMilli()
+            } catch (_: Exception) {
+                0L
+            }
+            list.add(
+                RemoteFile(
+                    name = name,
+                    path = itemPath,
+                    isDirectory = isDir,
+                    sizeBytes = size,
+                    modifiedTime = lastModifiedStr,
+                    modifiedTimestamp = timestamp
+                )
+            )
+        }
+        return list.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+    }
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("listFiles network error: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Reads a file's string content from the Colab instance via the Jupyter Contents API.
+     */
+    suspend fun readFile(
+        runtime: ColabRuntime,
+        path: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = runtime.endpointUrl.trimEnd('/')
+            if (endpoint.isBlank()) return@withContext Result.failure(Exception("endpointUrl is blank"))
+            val cleanPath = path.trim().trimStart('/')
+            val url = "$endpoint/api/contents/$cleanPath"
+
+            val req = Request.Builder()
+                .url(url)
+                .get()
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                    header("Accept", "application/json")
+                }
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                val rawBody = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("readFile failed (HTTP ${response.code}): $rawBody"))
+                }
+                val json = JSONObject(rawBody)
+                val content = json.optString("content", "")
+                Result.success(content)
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("readFile network error: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Creates or updates a text file on the Colab instance via the Jupyter Contents API.
+     */
+    suspend fun writeFile(
+        runtime: ColabRuntime,
+        path: String,
+        content: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = runtime.endpointUrl.trimEnd('/')
+            if (endpoint.isBlank()) return@withContext Result.failure(Exception("endpointUrl is blank"))
+            val cleanPath = path.trim().trimStart('/')
+            val url = "$endpoint/api/contents/$cleanPath"
+
+            val payload = JSONObject().apply {
+                put("type", "file")
+                put("format", "text")
+                put("content", content)
+            }
+
+            val req = Request.Builder()
+                .url(url)
+                .put(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                    header("Accept", "application/json")
+                }
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val rawBody = response.body?.string() ?: ""
+                    return@withContext Result.failure(Exception("writeFile failed (HTTP ${response.code}): $rawBody"))
+                }
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("writeFile network error: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Deletes a file or directory from the Colab instance via the Jupyter Contents API.
+     */
+    suspend fun deleteFile(
+        runtime: ColabRuntime,
+        path: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = runtime.endpointUrl.trimEnd('/')
+            if (endpoint.isBlank()) return@withContext Result.failure(Exception("endpointUrl is blank"))
+            val cleanPath = path.trim().trimStart('/')
+            val url = "$endpoint/api/contents/$cleanPath"
+
+            val req = Request.Builder()
+                .url(url)
+                .delete()
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                }
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful && response.code != 404) {
+                    val rawBody = response.body?.string() ?: ""
+                    return@withContext Result.failure(Exception("deleteFile failed (HTTP ${response.code}): $rawBody"))
+                }
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("deleteFile network error: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Reads real-time telemetry metrics directly from the daemon on the Colab instance.
+     */
+    suspend fun fetchMetrics(
+        runtime: ColabRuntime
+    ): Result<VMMetrics> = withContext(Dispatchers.IO) {
+        readFile(runtime, "tmp/colab_metrics.json").fold(
+            onSuccess = { content ->
+                val metrics = TelemetryEngine.parseMetricsJson(content)
+                Result.success(metrics)
+            },
+            onFailure = { err ->
+                Result.failure(err)
+            }
+        )
     }
 
     // ---------------------------------------------------------------------------

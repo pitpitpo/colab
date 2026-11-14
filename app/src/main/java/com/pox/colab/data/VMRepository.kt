@@ -5,6 +5,7 @@ import com.pox.colab.engine.AlpineAppContainerManager
 import com.pox.colab.engine.AlpineBootstrapGenerator
 import com.pox.colab.engine.ColabAccelerator
 import com.pox.colab.engine.ColabApiEngine
+import com.pox.colab.engine.ColabRuntime
 import com.pox.colab.engine.TunnelDiscoveryEngine
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.ColabVM
@@ -45,6 +46,28 @@ class VMRepository(
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val _activeRuntimes = java.util.concurrent.ConcurrentHashMap<String, ColabRuntime>()
+
+    fun getActiveRuntime(vmId: String): ColabRuntime? = _activeRuntimes[vmId]
+
+    fun setActiveRuntime(vmId: String, runtime: ColabRuntime) {
+        _activeRuntimes[vmId] = runtime
+    }
+
+    suspend fun resolveActiveRuntime(vmId: String): ColabRuntime? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        _activeRuntimes[vmId]?.let { return@withContext it }
+        val vm = getVMById(vmId) ?: return@withContext null
+        val account = _accounts.value.find { it.id == vm.accountId } ?: _activeAccount.value ?: return@withContext null
+        val token = ColabApiEngine.refreshOAuthTokenIfNeeded(account)
+        if (token.isBlank()) return@withContext null
+        val assignments = colabApiEngine.listAssignments(token).getOrNull()
+        val runtime = assignments?.firstOrNull { it.endpointUrl.isNotBlank() }
+        if (runtime != null) {
+            _activeRuntimes[vmId] = runtime
+        }
+        runtime
+    }
 
     init {
         loadData()
@@ -325,6 +348,7 @@ class VMRepository(
 
                     runtimeResult.fold(
                         onSuccess = { runtime ->
+                            setActiveRuntime(vmId, runtime)
                             val current = getVMById(vmId)
                             if (current != null) {
                                 val assignedUrl = runtime.endpointUrl.ifBlank { "https://colab.research.google.com/tun/m/${runtime.sessionId}" }

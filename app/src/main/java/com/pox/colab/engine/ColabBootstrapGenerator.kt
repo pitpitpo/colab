@@ -229,7 +229,7 @@ import subprocess
 import threading
 import time
 
-PORT = 8080
+PORT = 18080
 
 def collect_metrics():
     try:
@@ -317,18 +317,6 @@ def collect_metrics():
         "timestamp": time.time()
     }
 
-class ColabAgentHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        if self.path in ("/api/status", "/api/metrics"):
-            data = collect_metrics()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(data).encode())
-        else:
-            return super().do_GET()
-
 def metrics_writer_loop():
     while True:
         try:
@@ -339,8 +327,28 @@ def metrics_writer_loop():
             pass
         time.sleep(3)
 
+# Start writer daemon thread immediately
 threading.Thread(target=metrics_writer_loop, daemon=True).start()
-http.server.HTTPServer(("", PORT), ColabAgentHandler).serve_forever()
+
+# Bind HTTP metrics server with fallback so writer daemon never stops
+try:
+    class ColabAgentHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path in ("/api/status", "/api/metrics"):
+                data = collect_metrics()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps(data).encode())
+            else:
+                return super().do_GET()
+
+    server = http.server.HTTPServer(("", PORT), ColabAgentHandler)
+    server.serve_forever()
+except Exception:
+    # If HTTP port is unavailable, keep metrics loop active on foreground
+    metrics_writer_loop()
 AGENT_PY
             nohup python3 /content/agent.py > /tmp/agent.log 2>&1 &
 
