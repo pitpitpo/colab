@@ -84,6 +84,7 @@ object TelemetryEngine {
                 gpuVramUsedBytes = vramUsed,
                 gpuTemperatureCelsius = obj.optInt("gpu_temperature_celsius", 0),
                 uptimeSeconds = obj.optLong("uptime_seconds", 0L),
+                tunnelEndpoint = obj.optString("tunnel_endpoint").takeIf { it.isNotBlank() && it != "null" },
                 timestamp = ts
             )
         } catch (_: Exception) {

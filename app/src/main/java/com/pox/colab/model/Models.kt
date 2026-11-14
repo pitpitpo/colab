@@ -76,6 +76,7 @@ data class VMMetrics(
     val gpuTemperatureCelsius: Int = 0,
     val uptimeSeconds: Long = 0L,
     val loadAverage: String = "0.00, 0.00, 0.00",
+    val tunnelEndpoint: String? = null,
     val timestamp: Long = 0L
 ) {
     val ramUsagePercent: Float

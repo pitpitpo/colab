@@ -75,6 +75,17 @@ data class RuntimeStatus(
     val sessionId: String
 )
 
+/** Compute unit balance, consumption rate, and GPU eligibility from Colab CCU API. */
+data class ColabCcuInfo(
+    val currentBalance: Double = 0.0,
+    val consumptionRateHourly: Double = 0.0,
+    val assignmentsCount: Int = 0,
+    val eligibleGpus: List<String> = emptyList(),
+    val eligibleTpus: List<String> = emptyList(),
+    val remainingTokens: String = "",
+    val nextRefillTimestampSec: Long = 0L
+)
+
 // ---------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------
@@ -924,6 +935,67 @@ class ColabApiEngine(
             }
         )
     }
+
+    /**
+     * Queries compute units balance, hourly consumption rate, and accelerator eligibility.
+     * Calls `GET https://colab.research.google.com/tun/m/ccu-info?authuser={authUser}`.
+     */
+    suspend fun getCcuInfo(
+        bearerToken: String,
+        authUser: Int = 0
+    ): Result<ColabCcuInfo> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$COLAB_BASE/tun/m/ccu-info?authuser=$authUser"
+            val req = Request.Builder()
+                .url(url)
+                .get()
+                .header("Authorization", "Bearer $bearerToken")
+                .header("Accept", "application/json")
+                .header("X-Colab-Client-Agent", "colab-cli")
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                val rawBody = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("getCcuInfo failed (HTTP ${response.code}): $rawBody"))
+                }
+                Result.success(parseCcuInfo(rawBody))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("getCcuInfo network error: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Parses the JSON payload from the Colab CCU API into [ColabCcuInfo].
+     */
+    internal fun parseCcuInfo(body: String): ColabCcuInfo {
+        val stripped = stripXssiPrefix(body)
+        val json = try { JSONObject(stripped) } catch (_: Exception) { return ColabCcuInfo() }
+        val eligibleGpus = mutableListOf<String>()
+        json.optJSONArray("eligibleGpus")?.let { arr ->
+            for (i in 0 until arr.length()) eligibleGpus.add(arr.optString(i))
+        }
+        val eligibleTpus = mutableListOf<String>()
+        json.optJSONArray("eligibleTpus")?.let { arr ->
+            for (i in 0 until arr.length()) eligibleTpus.add(arr.optString(i))
+        }
+        val freeQuota = json.optJSONObject("freeCcuQuotaInfo")
+        return ColabCcuInfo(
+            currentBalance = json.optDouble("currentBalance", 0.0),
+            consumptionRateHourly = json.optDouble("consumptionRateHourly", 0.0),
+            assignmentsCount = json.optInt("assignmentsCount", 0),
+            eligibleGpus = eligibleGpus,
+            eligibleTpus = eligibleTpus,
+            remainingTokens = freeQuota?.optString("remainingTokens", "") ?: "",
+            nextRefillTimestampSec = freeQuota?.optLong("nextRefillTimestampSec", 0L) ?: 0L
+        )
+    }
+
+    suspend fun getCcuInfo(
+        account: ColabAccount,
+        authUser: Int = 0
+    ): Result<ColabCcuInfo> = getCcuInfo(extractBearerToken(account), authUser)
 
     // ---------------------------------------------------------------------------
     // Public API - ColabAccount Overloads

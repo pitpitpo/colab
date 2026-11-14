@@ -482,4 +482,33 @@ class ColabApiEngineTest {
         assertEquals(3659L, file.sizeBytes)
         assertEquals("2026-11-14T05:38:00Z", file.modifiedTime)
     }
+
+    @Test
+    fun parseCcuInfo_parsesRealColabCcuResponse() {
+        val json = """
+            )]}'
+            {
+              "currentBalance": 0,
+              "consumptionRateHourly": 0.16,
+              "assignmentsCount": 2,
+              "eligibleGpus": ["T4"],
+              "ineligibleGpus": ["H100", "G4", "A100", "L4"],
+              "freeCcuQuotaInfo": {
+                "remainingTokens": "5142",
+                "nextRefillTimestampSec": 1794684556
+              },
+              "eligibleTpus": ["V5E1"],
+              "ineligibleTpus": ["V6E1"]
+            }
+        """.trimIndent()
+
+        val ccu = engine.parseCcuInfo(json)
+        assertEquals(0.0, ccu.currentBalance, 0.001)
+        assertEquals(0.16, ccu.consumptionRateHourly, 0.001)
+        assertEquals(2, ccu.assignmentsCount)
+        assertEquals(listOf("T4"), ccu.eligibleGpus)
+        assertEquals(listOf("V5E1"), ccu.eligibleTpus)
+        assertEquals("5142", ccu.remainingTokens)
+        assertEquals(1794684556L, ccu.nextRefillTimestampSec)
+    }
 }
