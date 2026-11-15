@@ -63,6 +63,52 @@ class VMRepositoryTest {
     }
 
     @Test
+    fun isValidTunnelEndpoint_validatesCorrectly() {
+        // Valid public TCP / tunnel endpoints
+        assertTrue(VMRepository.isValidTunnelEndpoint("bore.pub:38429"))
+        assertTrue(VMRepository.isValidTunnelEndpoint("a.pinggy.io:44321"))
+        assertTrue(VMRepository.isValidTunnelEndpoint("serveo.net:2222"))
+        assertTrue(VMRepository.isValidTunnelEndpoint("0.tcp.ngrok.io:12345"))
+        assertTrue(VMRepository.isValidTunnelEndpoint("https://my-colab.trycloudflare.com"))
+
+        // Invalid / internal / REST endpoints that must never be treated as SSH tunnels
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint("https://colab.research.google.com/tun/m/gpu-t4-s-12345"))
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint("colab.research.google.com"))
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint("localhost"))
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint("127.0.0.1:22"))
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint(null))
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint(""))
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint("   "))
+    }
+
+    @Test
+    fun parseDiscoveredEndpoint_extractsFromOutput() {
+        val stdoutWithBoreMarker = """
+            === [4/5] Starting Tunnel Provider & Auto-Announcing Endpoint ===
+            ==========================================================
+               TUNNEL READY: bore.pub:42199
+            ==========================================================
+            [*] Auto-announced endpoint to Android app successfully.
+        """.trimIndent()
+        assertEquals("bore.pub:42199", VMRepository.parseDiscoveredEndpoint(stdoutWithBoreMarker))
+
+        val stdoutWithPinggyMarker = """
+            TUNNEL READY: a.pinggy.io:55123
+        """.trimIndent()
+        assertEquals("a.pinggy.io:55123", VMRepository.parseDiscoveredEndpoint(stdoutWithPinggyMarker))
+
+        val stdoutWithRawBoreLog = """
+            2026/11/15 05:00:00 [INFO] listening at bore.pub:38491
+        """.trimIndent()
+        assertEquals("bore.pub:38491", VMRepository.parseDiscoveredEndpoint(stdoutWithRawBoreLog))
+
+        val stdoutWithColabRestUrl = """
+            Assigned endpoint: https://colab.research.google.com/tun/m/gpu-12345
+        """.trimIndent()
+        org.junit.Assert.assertNull(VMRepository.parseDiscoveredEndpoint(stdoutWithColabRestUrl))
+    }
+
+    @Test
     fun runtimeEngineMode_enumProperties() {
         val nativeMode = RuntimeEngineMode.NATIVE_API
         assertEquals("NATIVE_API", nativeMode.name)

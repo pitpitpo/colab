@@ -101,4 +101,28 @@ class TunnelDiscoveryEngineTest {
             TunnelDiscoveryEngine.httpClient = origClient
         }
     }
+
+    @Test
+    fun pollDiscoveredEndpoint_rejectsColabRestUrlAndInvalidEndpoints() = runBlocking {
+        val mockClient = OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("https://colab.research.google.com/tun/m/gpu-12345\n".toResponseBody())
+                    .build()
+            })
+            .build()
+
+        val origClient = TunnelDiscoveryEngine.httpClient
+        try {
+            TunnelDiscoveryEngine.httpClient = mockClient
+            val endpoint = TunnelDiscoveryEngine.pollDiscoveredEndpoint("test-vm-4")
+            assertNull(endpoint)
+        } finally {
+            TunnelDiscoveryEngine.httpClient = origClient
+        }
+    }
 }

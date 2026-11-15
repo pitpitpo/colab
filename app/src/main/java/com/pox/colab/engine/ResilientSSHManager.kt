@@ -89,9 +89,12 @@ class ResilientSSHManager(
             vm
         }
         vm = latestVm
-        val raw = if (!latestVm.tunnelUrl.isNullOrBlank()) {
-            latestVm.tunnelUrl
-        } else if (latestVm.sshConfig.host.isNotBlank() && latestVm.sshConfig.host != "localhost") {
+        val raw = if (VMRepository.isValidTunnelEndpoint(latestVm.tunnelUrl)) {
+            latestVm.tunnelUrl ?: ""
+        } else if (latestVm.sshConfig.host.isNotBlank() &&
+            latestVm.sshConfig.host != "localhost" &&
+            VMRepository.isValidTunnelEndpoint(latestVm.sshConfig.host)
+        ) {
             "${latestVm.sshConfig.host}:${latestVm.sshConfig.port}"
         } else {
             ""
@@ -114,8 +117,18 @@ class ResilientSSHManager(
                 var discoveredEndpoint: String? = null
                 for (attempt in 1..120) {
                     if (!isActive || isUserIntentionallyDisconnected) break
-                    val repoEp = try { com.pox.colab.ColabApp.instance.repository.getVMById(vm.id)?.tunnelUrl } catch (_: Exception) { null }
-                    val ep = if (!repoEp.isNullOrBlank()) repoEp else TunnelDiscoveryEngine.pollDiscoveredEndpoint(vm.id)
+                    val repo = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+                    val repoEp = repo?.getVMById(vm.id)?.tunnelUrl?.takeIf { VMRepository.isValidTunnelEndpoint(it) }
+                    val runtime = repo?.getActiveRuntime(vm.id) ?: repo?.resolveActiveRuntime(vm.id)
+                    val fileEp = if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                        try {
+                            ColabApiEngine.getInstance().readFile(runtime, "tmp/colab_tunnel_endpoint.txt").getOrNull()?.trim()?.takeIf { VMRepository.isValidTunnelEndpoint(it) }
+                        } catch (_: Exception) { null }
+                    } else null
+                    val ntfyEp = if (fileEp == null && repoEp == null) {
+                        TunnelDiscoveryEngine.pollDiscoveredEndpoint(vm.id)?.takeIf { VMRepository.isValidTunnelEndpoint(it) }
+                    } else null
+                    val ep = repoEp ?: fileEp ?: ntfyEp
                     if (!ep.isNullOrBlank()) {
                         discoveredEndpoint = ep
                         break

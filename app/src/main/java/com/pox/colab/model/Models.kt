@@ -10,8 +10,8 @@ enum class HardwareAccelerator(val label: String, val chipCode: String) {
 }
 
 enum class TunnelProvider(val label: String) {
-    CLOUDFLARE("Cloudflare Quick Tunnel"),
-    BORE("Bore TCP Tunnel"),
+    BORE("Auto TCP Tunnel (Bore / Pinggy / Serveo)"),
+    CLOUDFLARE("Cloudflare Tunnel"),
     NGROK("Ngrok TCP"),
     CUSTOM("Custom / Direct Host")
 }
@@ -109,7 +109,7 @@ data class ColabVM(
     val name: String,
     val accountId: String,
     val hardwareAccelerator: HardwareAccelerator = HardwareAccelerator.T4,
-    val tunnelProvider: TunnelProvider = TunnelProvider.CLOUDFLARE,
+    val tunnelProvider: TunnelProvider = TunnelProvider.BORE,
     val tunnelUrl: String? = null,
     val sshConfig: SSHSessionConfig = SSHSessionConfig(),
     val status: VMStatus = VMStatus.STOPPED,

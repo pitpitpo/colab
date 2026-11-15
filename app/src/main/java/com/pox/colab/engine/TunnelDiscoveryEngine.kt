@@ -1,5 +1,6 @@
 package com.pox.colab.engine
 
+import com.pox.colab.data.VMRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,9 +54,11 @@ object TunnelDiscoveryEngine {
                         // Take the most recent published endpoint line
                         val candidate = body.lines().lastOrNull { line ->
                             val trimmed = line.trim()
-                            trimmed.isNotBlank() && (trimmed.contains(":") || trimmed.contains("."))
+                            trimmed.isNotBlank() && VMRepository.isValidTunnelEndpoint(trimmed)
                         }?.trim()
-                        return@withContext candidate
+                        if (candidate != null && VMRepository.isValidTunnelEndpoint(candidate)) {
+                            return@withContext candidate
+                        }
                     }
                 }
             }

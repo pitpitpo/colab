@@ -484,7 +484,8 @@ fun VMGridCard(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(vm.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val hasTunnel = vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" || !vm.tunnelUrl.isNullOrBlank()
+                        val hasTunnel = com.pox.colab.data.VMRepository.isValidTunnelEndpoint(vm.tunnelUrl) ||
+                                (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" && com.pox.colab.data.VMRepository.isValidTunnelEndpoint(vm.sshConfig.host))
                         Text(
                             text = if (hasTunnel) "${vm.sshConfig.host}:${vm.sshConfig.port}" else account?.let { "${it.displayName} • ${it.tier}" } ?: "Account Disconnected",
                             style = MaterialTheme.typography.bodySmall,

@@ -88,10 +88,23 @@ class VMRepository(
                 vm.accountId.isNotBlank() && loadedAccounts.any { it.id == vm.accountId }
             }
         }
-        if (validVMs.size != loadedVMs.size) {
-            preferences.saveVMs(validVMs)
+        // Sanitize any corrupted tunnelUrl or sshConfig host pointing to colab.research.google.com
+        val sanitizedVMs = validVMs.map { vm ->
+            val isBadTunnel = vm.tunnelUrl?.contains("colab.research.google.com") == true
+            val isBadHost = vm.sshConfig.host.contains("colab.research.google.com")
+            if (isBadTunnel || isBadHost) {
+                vm.copy(
+                    tunnelUrl = if (isBadTunnel) null else vm.tunnelUrl,
+                    sshConfig = if (isBadHost) vm.sshConfig.copy(host = "", port = 22) else vm.sshConfig
+                )
+            } else {
+                vm
+            }
         }
-        _vms.value = validVMs
+        if (sanitizedVMs != loadedVMs) {
+            preferences.saveVMs(sanitizedVMs)
+        }
+        _vms.value = sanitizedVMs
     }
 
     fun addAccount(
@@ -256,10 +269,13 @@ class VMRepository(
     }
 
     fun updateTunnelEndpoint(id: String, rawEndpoint: String) {
+        val clean = rawEndpoint.trim()
+        if (!isValidTunnelEndpoint(clean)) return
         val target = getVMById(id) ?: return
-        val (host, port) = parseEndpoint(rawEndpoint)
+        val (host, port) = parseEndpoint(clean)
+        if (host.isBlank() || !isValidTunnelEndpoint(clean)) return
         val updated = target.copy(
-            tunnelUrl = rawEndpoint.trim(),
+            tunnelUrl = clean,
             sshConfig = target.sshConfig.copy(
                 host = host,
                 port = port
@@ -368,12 +384,15 @@ class VMRepository(
                         setActiveRuntime(vmId, runtime)
                         val current = getVMById(vmId)
                         if (current != null) {
-                            val assignedUrl = runtime.endpointUrl.ifBlank { "https://colab.research.google.com/tun/m/${runtime.sessionId}" }
+                            val cleanTunnel = current.tunnelUrl?.takeIf { isValidTunnelEndpoint(it) }
                             updateVM(current.copy(
                                 status = VMStatus.STARTING,
-                                tunnelUrl = current.tunnelUrl?.takeIf { it.isNotBlank() } ?: assignedUrl
+                                tunnelUrl = cleanTunnel
                             ))
                         }
+
+                        // Ensure tunnel auto-discovery is listening
+                        startTunnelDiscovery(vmId)
 
                         // 4. Run bootstrap script with auto-retry (up to 3 attempts with backoff)
                         var bootstrapSuccess = false
@@ -385,6 +404,22 @@ class VMRepository(
                             )
                             if (result.isSuccess) {
                                 val (_, execResult) = result.getOrThrow()
+
+                                // Auto-Set Tunnel: Channel 1 - Parse from cell execution stdout
+                                val discovered = parseDiscoveredEndpoint(execResult.stdout)
+                                if (!discovered.isNullOrBlank()) {
+                                    updateTunnelEndpoint(vmId, discovered)
+                                } else {
+                                    // Auto-Set Tunnel: Channel 2 - Read from /tmp/colab_tunnel_endpoint.txt
+                                    try {
+                                        val fileRes = colabApiEngine.readFile(runtime, "tmp/colab_tunnel_endpoint.txt")
+                                        val fileEp = fileRes.getOrNull()?.trim()
+                                        if (isValidTunnelEndpoint(fileEp)) {
+                                            updateTunnelEndpoint(vmId, fileEp!!)
+                                        }
+                                    } catch (_: Exception) {}
+                                }
+
                                 if (execResult.success || execResult.httpStatus == 200) {
                                     bootstrapSuccess = true
                                     break
@@ -393,16 +428,32 @@ class VMRepository(
                             if (attempt < 3) kotlinx.coroutines.delay(2000L * attempt)
                         }
 
+                        // Fast follow-up: poll for tunnel file if not yet discovered
+                        if (!isValidTunnelEndpoint(getVMById(vmId)?.tunnelUrl)) {
+                            for (pollAttempt in 1..8) {
+                                kotlinx.coroutines.delay(1500L)
+                                try {
+                                    val fileRes = colabApiEngine.readFile(runtime, "tmp/colab_tunnel_endpoint.txt")
+                                    val fileEp = fileRes.getOrNull()?.trim()
+                                    if (isValidTunnelEndpoint(fileEp)) {
+                                        updateTunnelEndpoint(vmId, fileEp!!)
+                                        break
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
                         val cur = getVMById(vmId)
                         if (cur != null) {
-                            if (bootstrapSuccess || cur.tunnelUrl?.isNotBlank() == true) {
+                            val hasValidTunnel = isValidTunnelEndpoint(cur.tunnelUrl)
+                            if (bootstrapSuccess || hasValidTunnel) {
                                 updateVM(cur.copy(status = VMStatus.RUNNING))
                             }
                         }
                     } else {
                         android.util.Log.e("VMRepository", "Colab allocation failed after retries for VM $vmId")
                         val current = getVMById(vmId)
-                        if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
+                        if (current != null && current.status != VMStatus.RUNNING && !isValidTunnelEndpoint(current.tunnelUrl)) {
                             updateVM(current.copy(status = VMStatus.ERROR))
                         }
                     }
@@ -474,6 +525,54 @@ class VMRepository(
     }
 
     companion object {
+        fun isValidTunnelEndpoint(ep: String?): Boolean {
+            if (ep.isNullOrBlank()) return false
+            val clean = ep.trim().lowercase()
+            if (clean.contains("colab.research.google.com") || clean == "localhost" || clean.startsWith("127.")) return false
+            return clean.contains(":") || clean.contains(".trycloudflare.com")
+        }
+
+        fun parseDiscoveredEndpoint(text: String): String? {
+            if (text.isBlank()) return null
+            // 1. Explicit marker: TUNNEL READY: <endpoint>
+            val readyRegex = Regex("""TUNNEL READY:\s*([^\s\r\n]+)""")
+            readyRegex.find(text)?.let {
+                val candidate = it.groupValues[1].trim()
+                if (isValidTunnelEndpoint(candidate)) return candidate
+            }
+            // 2. Bore TCP tunnel: bore.pub:<port>
+            val boreRegex = Regex("""(bore\.pub:[0-9]+)""")
+            boreRegex.find(text)?.let {
+                val candidate = it.groupValues[1].trim()
+                if (isValidTunnelEndpoint(candidate)) return candidate
+            }
+            // 3. Pinggy TCP tunnel: [subdomain.]pinggy.io:[port] or pinggy.link:[port]
+            val pinggyRegex = Regex("""((?:tcp://)?[a-zA-Z0-9.-]+\.pinggy\.(?:io|link):[0-9]+)""")
+            pinggyRegex.find(text)?.let {
+                val candidate = it.groupValues[1].trim()
+                if (isValidTunnelEndpoint(candidate)) return candidate
+            }
+            // 4. Serveo TCP tunnel: serveo.net:[port]
+            val serveoRegex = Regex("""(serveo\.net:[0-9]+)""")
+            serveoRegex.find(text)?.let {
+                val candidate = it.groupValues[1].trim()
+                if (isValidTunnelEndpoint(candidate)) return candidate
+            }
+            // 5. Ngrok TCP tunnel
+            val ngrokRegex = Regex("""([a-zA-Z0-9.-]+\.ngrok(?:-free)?\.(?:io|app):[0-9]+)""")
+            ngrokRegex.find(text)?.let {
+                val candidate = it.groupValues[1].trim()
+                if (isValidTunnelEndpoint(candidate)) return candidate
+            }
+            // 6. Cloudflare tunnel: https://<domain>.trycloudflare.com
+            val cfRegex = Regex("""(https://[a-zA-Z0-9-]+\.trycloudflare\.com)""")
+            cfRegex.find(text)?.let {
+                val candidate = it.groupValues[1].trim()
+                if (isValidTunnelEndpoint(candidate)) return candidate
+            }
+            return null
+        }
+
         fun parseEndpoint(raw: String): Pair<String, Int> {
             val clean = raw.trim()
                 .removePrefix("ssh://")

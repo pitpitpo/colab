@@ -84,14 +84,15 @@ fun DashboardTab(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val (host, port) = VMRepository.parseEndpoint(
-        if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost") {
-            "${vm.sshConfig.host}:${vm.sshConfig.port}"
-        } else {
-            vm.tunnelUrl ?: ""
-        }
-    )
-    val hasTunnel = host.isNotBlank()
+    val activeEndpoint = if (VMRepository.isValidTunnelEndpoint(vm.tunnelUrl)) {
+        vm.tunnelUrl ?: ""
+    } else if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" && VMRepository.isValidTunnelEndpoint(vm.sshConfig.host)) {
+        "${vm.sshConfig.host}:${vm.sshConfig.port}"
+    } else {
+        ""
+    }
+    val (host, port) = VMRepository.parseEndpoint(activeEndpoint)
+    val hasTunnel = VMRepository.isValidTunnelEndpoint(activeEndpoint)
 
     // Autonomous tunnel auto-discovery from Colab bootstrap broadcast
     LaunchedEffect(vm.id, hasTunnel) {
@@ -100,17 +101,29 @@ fun DashboardTab(
         }
     }
 
-    // Real-Time Telemetry Polling: Queries native Colab REST metrics daemon with HTTP fallback
+    // Real-Time Telemetry & Tunnel Auto-Discovery Polling
     LaunchedEffect(vm.id, host, port, vm.status) {
         while (isActive) {
             val runtime = repository.getActiveRuntime(vm.id) ?: repository.resolveActiveRuntime(vm.id)
             if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                // If tunnel is not yet set or invalid, check /tmp/colab_tunnel_endpoint.txt directly on instance
+                val curVm = repository.getVMById(vm.id)
+                if (curVm != null && !VMRepository.isValidTunnelEndpoint(curVm.tunnelUrl)) {
+                    try {
+                        val tunnelRes = ColabApiEngine.getInstance().readFile(runtime, "tmp/colab_tunnel_endpoint.txt")
+                        val tunnelEp = tunnelRes.getOrNull()?.trim()
+                        if (VMRepository.isValidTunnelEndpoint(tunnelEp)) {
+                            repository.updateTunnelEndpoint(vm.id, tunnelEp!!)
+                        }
+                    } catch (_: Exception) {}
+                }
+
                 val metricsResult = ColabApiEngine.getInstance().fetchMetrics(runtime)
                 val metrics = metricsResult.getOrNull()
                 if (metrics != null && metrics.timestamp > 0L) {
                     repository.updateMetrics(vm.id, metrics)
-                    if (!metrics.tunnelEndpoint.isNullOrBlank() && metrics.tunnelEndpoint != vm.tunnelUrl) {
-                        repository.updateTunnelEndpoint(vm.id, metrics.tunnelEndpoint)
+                    if (VMRepository.isValidTunnelEndpoint(metrics.tunnelEndpoint) && metrics.tunnelEndpoint != vm.tunnelUrl) {
+                        repository.updateTunnelEndpoint(vm.id, metrics.tunnelEndpoint!!)
                     }
                 }
             } else if (hasTunnel) {
@@ -119,7 +132,7 @@ fun DashboardTab(
                     repository.updateMetrics(vm.id, httpMetrics)
                 }
             }
-            delay(4000L)
+            delay(3000L)
         }
     }
 

@@ -39,24 +39,74 @@ object ColabBootstrapGenerator {
                 done
             """.trimIndent()
             TunnelProvider.BORE -> """
-                # Install bore tcp tunnel
+                # Install bore tcp tunnel binary
                 if ! command -v bore &> /dev/null; then
-                    curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
+                    curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin 2>/dev/null || true
+                    chmod +x /usr/local/bin/bore 2>/dev/null || true
                 fi
-                echo "[*] Starting Bore TCP Tunnel..."
-                bore local ${vm.sshConfig.port} --to bore.pub > /tmp/tunnel.log 2>&1 &
+                echo "[*] Starting Resilient Bore TCP Tunnel Supervisor..."
+                (while true; do
+                    if command -v bore &> /dev/null; then
+                        bore local ${vm.sshConfig.port} --to bore.pub >> /tmp/tunnel.log 2>&1 || true
+                    fi
+                    sleep 2
+                done) &
                 
+                TUNNEL_ESTABLISHED=""
                 # Auto-detect Bore endpoint and broadcast to app
-                for i in $(seq 1 30); do
+                for i in $(seq 1 10); do
                     if [ -f /tmp/tunnel.log ]; then
-                        EP=$(grep -oE 'bore\.pub:[0-9]+' /tmp/tunnel.log | head -n 1 || true)
+                        EP=$(grep -oE 'bore\.pub:[0-9]+' /tmp/tunnel.log | tail -n 1 || true)
                         if [ -n "${'$'}EP" ]; then
+                            TUNNEL_ESTABLISHED="${'$'}EP"
                             announce_endpoint "${'$'}EP"
                             break
                         fi
                     fi
                     sleep 1
                 done
+
+                # If bore.pub did not connect within 10s, auto-fallback to Pinggy SSH TCP tunnel
+                if [ -z "${'$'}TUNNEL_ESTABLISHED" ]; then
+                    echo "[*] Bore server busy/unreachable; falling back to Pinggy TCP tunnel..."
+                    (while true; do
+                        ssh -p 443 -R0:localhost:${vm.sshConfig.port} -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -o ServerAliveCountMax=3 a.pinggy.io >> /tmp/pinggy.log 2>&1 || true
+                        sleep 2
+                    done) &
+
+                    for i in $(seq 1 8); do
+                        if [ -f /tmp/pinggy.log ]; then
+                            EP=$(grep -oE '([a-zA-Z0-9.-]+\.pinggy\.(?:io|link):[0-9]+)' /tmp/pinggy.log | tail -n 1 || true)
+                            if [ -n "${'$'}EP" ]; then
+                                TUNNEL_ESTABLISHED="${'$'}EP"
+                                announce_endpoint "${'$'}EP"
+                                break
+                            fi
+                        fi
+                        sleep 1
+                    done
+                fi
+
+                # If Pinggy did not connect, auto-fallback to Serveo TCP tunnel
+                if [ -z "${'$'}TUNNEL_ESTABLISHED" ]; then
+                    echo "[*] Pinggy unavailable; falling back to Serveo TCP tunnel..."
+                    (while true; do
+                        ssh -R 0:localhost:${vm.sshConfig.port} -o StrictHostKeyChecking=no -o ServerAliveInterval=10 serveo.net >> /tmp/serveo.log 2>&1 || true
+                        sleep 2
+                    done) &
+
+                    for i in $(seq 1 8); do
+                        if [ -f /tmp/serveo.log ]; then
+                            PORT_NUM=$(grep -oE 'from serveo\.net:[0-9]+' /tmp/serveo.log | grep -oE '[0-9]+' | tail -n 1 || true)
+                            if [ -n "${'$'}PORT_NUM" ]; then
+                                TUNNEL_ESTABLISHED="serveo.net:${'$'}PORT_NUM"
+                                announce_endpoint "serveo.net:${'$'}PORT_NUM"
+                                break
+                            fi
+                        fi
+                        sleep 1
+                    done
+                fi
             """.trimIndent()
             TunnelProvider.NGROK -> """
                 # Ngrok Tunnel setup

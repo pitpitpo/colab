@@ -102,7 +102,8 @@ fun VMDetailsScreen(
     }
 
     val hasEndpoint = remember(vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
-        (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost") || !vm.tunnelUrl.isNullOrBlank()
+        VMRepository.isValidTunnelEndpoint(vm.tunnelUrl) ||
+        (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" && VMRepository.isValidTunnelEndpoint(vm.sshConfig.host))
     }
 
     if (showTunnelDialog) {

@@ -92,7 +92,7 @@ fun AddVMDialog(
     }
 
     var selectedAccelerator by remember { mutableStateOf(HardwareAccelerator.T4) }
-    var selectedTunnelProvider by remember { mutableStateOf(TunnelProvider.CLOUDFLARE) }
+    var selectedTunnelProvider by remember { mutableStateOf(TunnelProvider.BORE) }
     var selectedProtocol by remember { mutableStateOf(ResilientProtocol.TMUX_SSH) }
 
     var accountDropdownExpanded by remember { mutableStateOf(false) }
