@@ -5,7 +5,10 @@ import com.pox.colab.engine.AlpineAppContainerManager
 import com.pox.colab.engine.AlpineBootstrapGenerator
 import com.pox.colab.engine.ColabAccelerator
 import com.pox.colab.engine.ColabApiEngine
+import com.pox.colab.engine.ColabCcuInfo
 import com.pox.colab.engine.ColabRuntime
+import com.pox.colab.engine.RuntimeStatus
+import com.pox.colab.engine.TelemetryEngine
 import com.pox.colab.engine.TunnelDiscoveryEngine
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.ColabVM
@@ -22,6 +25,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +36,14 @@ import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+
+data class RemoteSyncResult(
+    val syncedAccounts: Int = 0,
+    val activeRuntimes: Int = 0,
+    val updatedVMs: Int = 0,
+    val errorMessage: String? = null
+)
 
 class VMRepository(
     private val preferences: AppPreferences,
@@ -53,6 +66,9 @@ class VMRepository(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private val _activeRuntimes = ConcurrentHashMap<String, ColabRuntime>()
     private val spinUpJobs = ConcurrentHashMap<String, Job>()
     private val discoveryJobs = ConcurrentHashMap<String, Job>()
@@ -66,45 +82,127 @@ class VMRepository(
         lastNegativeRuntimeLookup.remove(vmId)
     }
 
+    private suspend fun getFreshAccountToken(account: ColabAccount): String {
+        val prevOauth = account.oauthToken
+        val prevToken = account.tokenOrCookie
+        val token = ColabApiEngine.refreshOAuthTokenIfNeeded(account)
+        if (account.oauthToken != prevOauth || account.tokenOrCookie != prevToken) {
+            val persisted = _accounts.updateAndGet { list ->
+                list.map { a -> if (a.id == account.id) account.copy() else a }
+            }
+            preferences.saveAccounts(persisted)
+        }
+        return token
+    }
+
+    /**
+     * Returns an active runtime whose proxy URL and proxy token are ready for immediate use,
+     * refreshing an expiring proxy token or querying Colab assignments when needed.
+     */
+    suspend fun ensureFreshRuntime(vmId: String): ColabRuntime? {
+        val cached = _activeRuntimes[vmId]
+        if (cached != null && !cached.needsProxyResolution()) {
+            return cached
+        }
+        return resolveActiveRuntime(vmId)
+    }
+
+    /**
+     * Sends a Colab control-plane keep-alive heartbeat (`/tun/m/{endpoint}/keep-alive/`)
+     * for [vmId] if it has an active runtime and valid OAuth credentials.
+     */
+    suspend fun sendKeepAlive(vmId: String): Boolean = withContext(Dispatchers.IO) {
+        val runtime = _activeRuntimes[vmId] ?: return@withContext false
+        val vm = getVMById(vmId) ?: return@withContext false
+        val account = _accounts.value.find { it.id == vm.accountId }
+            ?: _activeAccount.value
+            ?: return@withContext false
+        val token = getFreshAccountToken(account)
+        if (token.isBlank()) return@withContext false
+        colabApiEngine.keepAlive(token, runtime).getOrDefault(false)
+    }
+
+    /** Queries live Google Colab compute units balance and GPU eligibility for [accountId]. */
+    suspend fun getAccountCcuInfo(accountId: String): Result<ColabCcuInfo> = withContext(Dispatchers.IO) {
+        val account = _accounts.value.find { it.id == accountId }
+            ?: return@withContext Result.failure(Exception("Account not found"))
+        val token = getFreshAccountToken(account)
+        if (token.isBlank()) {
+            return@withContext Result.failure(Exception("Missing OAuth token for ${account.email}"))
+        }
+        colabApiEngine.getCcuInfo(token)
+    }
+
+    /** Interrupts the active Jupyter kernel on the Colab runtime backing [vmId]. */
+    suspend fun interruptKernel(vmId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val runtime = ensureFreshRuntime(vmId)
+            ?: return@withContext Result.failure(Exception("No active Colab runtime found"))
+        colabApiEngine.interruptKernel(runtime)
+    }
+
+    /** Restarts the active Jupyter kernel on the Colab runtime backing [vmId]. */
+    suspend fun restartKernel(vmId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val runtime = ensureFreshRuntime(vmId)
+            ?: return@withContext Result.failure(Exception("No active Colab runtime found"))
+        colabApiEngine.restartKernel(runtime)
+    }
+
+    /** Probes `/api/status` on the Colab runtime backing [vmId]. */
+    suspend fun checkRuntimeHealth(vmId: String): Result<RuntimeStatus> = withContext(Dispatchers.IO) {
+        val runtime = ensureFreshRuntime(vmId)
+            ?: return@withContext Result.failure(Exception("No active Colab runtime found"))
+        val vm = getVMById(vmId)
+        val account = vm?.let { v -> _accounts.value.find { it.id == v.accountId } } ?: _activeAccount.value
+        val token = account?.let { getFreshAccountToken(it) } ?: ""
+        colabApiEngine.checkRuntimeStatus(token, runtime)
+    }
+
     suspend fun resolveActiveRuntime(vmId: String): ColabRuntime? {
-        _activeRuntimes[vmId]?.let { return it }
+        _activeRuntimes[vmId]?.takeIf { !it.needsProxyResolution() }?.let { return it }
         val lastMiss = lastNegativeRuntimeLookup[vmId]
-        if (lastMiss != null && System.currentTimeMillis() - lastMiss < NEGATIVE_LOOKUP_COOLDOWN_MS) {
+        if (_activeRuntimes[vmId] == null && lastMiss != null && System.currentTimeMillis() - lastMiss < NEGATIVE_LOOKUP_COOLDOWN_MS) {
             return null
         }
 
         val deferred = inFlightRuntimeLookups.computeIfAbsent(vmId) {
             scope.async(Dispatchers.IO) {
                 try {
-                    _activeRuntimes[vmId]?.let { return@async it }
-                    val vm = getVMById(vmId) ?: return@async null
+                    val existing = _activeRuntimes[vmId]
+                    if (existing != null && !existing.needsProxyResolution()) {
+                        return@async existing
+                    }
+                    val vm = getVMById(vmId) ?: return@async existing
                     val account = _accounts.value.find { it.id == vm.accountId }
                         ?: _activeAccount.value
-                        ?: return@async null
-                    val prevOauth = account.oauthToken
-                    val prevToken = account.tokenOrCookie
-                    val token = ColabApiEngine.refreshOAuthTokenIfNeeded(account)
-                    if (token.isBlank()) return@async null
-                    if (account.oauthToken != prevOauth || account.tokenOrCookie != prevToken) {
-                        val persisted = _accounts.updateAndGet { list ->
-                            list.map { a -> if (a.id == account.id) account.copy() else a }
+                        ?: return@async existing
+                    val token = getFreshAccountToken(account)
+                    if (token.isBlank()) return@async existing
+
+                    if (existing != null) {
+                        val refreshed = colabApiEngine.ensureRuntimeProxyReady(token, existing).getOrNull()
+                        if (refreshed != null) {
+                            _activeRuntimes[vmId] = refreshed
+                            lastNegativeRuntimeLookup.remove(vmId)
+                            return@async refreshed
                         }
-                        preferences.saveAccounts(persisted)
                     }
-                    val assignments = colabApiEngine.listAssignments(token).getOrNull()
+
+                    val assignments = colabApiEngine.listAssignments(token, hydrateProxyTokens = true).getOrNull()
                     val runtime = assignments?.firstOrNull { it.endpointUrl.isNotBlank() }
                     if (runtime != null) {
-                        _activeRuntimes[vmId] = runtime
+                        val hydrated = colabApiEngine.ensureRuntimeProxyReady(token, runtime).getOrDefault(runtime)
+                        _activeRuntimes[vmId] = hydrated
                         lastNegativeRuntimeLookup.remove(vmId)
+                        hydrated
                     } else {
                         lastNegativeRuntimeLookup[vmId] = System.currentTimeMillis()
+                        existing
                     }
-                    runtime
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
                     lastNegativeRuntimeLookup[vmId] = System.currentTimeMillis()
-                    null
+                    _activeRuntimes[vmId]
                 } finally {
                     inFlightRuntimeLookups.remove(vmId)
                 }
@@ -205,14 +303,31 @@ class VMRepository(
     }
 
     fun removeAccount(context: Context, id: String) {
+        val removedAccount = _accounts.value.find { it.id == id }
+        val removedVmIds = _vms.value.filter { it.accountId == id }.map { it.id }
+        val runtimesToRelease = removedVmIds.mapNotNull { _activeRuntimes[it] }.distinctBy { it.endpointId }
+
         val updatedAccounts = _accounts.updateAndGet { current ->
             current.filter { it.id != id }
         }
         preferences.saveAccounts(updatedAccounts)
 
         // Cancel background jobs and evict caches for VMs cascade-deleted with this account
-        val removedVmIds = _vms.value.filter { it.accountId == id }.map { it.id }
         removedVmIds.forEach { cleanupVmResources(it) }
+
+        // Best-effort remote unassign for any active runtimes owned by this account
+        if (removedAccount != null && runtimesToRelease.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                val token = ColabApiEngine.extractBearerToken(removedAccount)
+                runtimesToRelease.forEach { rt ->
+                    try {
+                        colabApiEngine.terminateRuntime(token, rt)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {}
+                }
+            }
+        }
 
         // Cascade delete VMs associated with this removed account to prevent orphans
         val updatedVMs = _vms.updateAndGet { current ->
@@ -350,11 +465,26 @@ class VMRepository(
     }
 
     fun deleteVM(id: String) {
+        val activeRuntime = _activeRuntimes[id]
+        val target = getVMById(id)
         cleanupVmResources(id)
         val updated = _vms.updateAndGet { current ->
             current.filter { it.id != id }
         }
         preferences.saveVMs(updated)
+        if (activeRuntime != null) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val account = target?.let { vm ->
+                        _accounts.value.find { it.id == vm.accountId }
+                    } ?: _activeAccount.value
+                    val token = account?.let { getFreshAccountToken(it) } ?: ""
+                    colabApiEngine.terminateRuntime(token, activeRuntime)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     fun getVMById(id: String): ColabVM? = _vms.value.find { it.id == id }
@@ -436,10 +566,10 @@ class VMRepository(
                     // 1. Check in-memory active runtime cache
                     var runtime: ColabRuntime? = getActiveRuntime(vmId)
 
-                    // 2. If not cached, check existing Colab assignments with auto-retry
+                    // 2. If not cached, check existing Colab assignments with auto-retry and proxy hydration
                     if (runtime == null || runtime.endpointUrl.isBlank()) {
                         for (retry in 1..3) {
-                            val existingList = colabApiEngine.listAssignments(token).getOrNull()
+                            val existingList = colabApiEngine.listAssignments(token, hydrateProxyTokens = true).getOrNull()
                             val found = existingList?.firstOrNull { it.sessionId.isNotBlank() }
                             if (found != null) {
                                 runtime = found
@@ -462,7 +592,9 @@ class VMRepository(
                     }
 
                     if (runtime != null) {
-                        setActiveRuntime(vmId, runtime)
+                        val hydratedRuntime = colabApiEngine.ensureRuntimeProxyReady(token, runtime).getOrDefault(runtime)
+                        runtime = hydratedRuntime
+                        setActiveRuntime(vmId, hydratedRuntime)
                         val current = getVMById(vmId)
                         if (current != null) {
                             val cleanTunnel = current.tunnelUrl?.takeIf { isValidTunnelEndpoint(it) }
@@ -613,9 +745,212 @@ class VMRepository(
     fun spinUpAlpineVM(vmId: String) = spinUpVM(vmId)
 
     fun stopVM(vmId: String) {
+        val activeRuntime = _activeRuntimes[vmId]
+        val target = getVMById(vmId)
         cleanupVmResources(vmId)
-        val target = getVMById(vmId) ?: return
-        updateVM(target.copy(status = VMStatus.STOPPED))
+        if (target != null) {
+            updateVM(target.copy(status = VMStatus.STOPPED))
+        }
+        if (activeRuntime != null) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val account = target?.let { vm ->
+                        _accounts.value.find { it.id == vm.accountId }
+                    } ?: _activeAccount.value
+                    val token = account?.let { getFreshAccountToken(it) } ?: ""
+                    colabApiEngine.terminateRuntime(token, activeRuntime)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    /**
+     * Manually synchronizes enabled Google Colab accounts, active remote runtimes,
+     * live telemetry metrics, and tunnel endpoints with the remote Colab API.
+     */
+    suspend fun syncWithRemoteApi(): RemoteSyncResult = withContext(Dispatchers.IO) {
+        if (!_isRefreshing.compareAndSet(false, true)) {
+            return@withContext RemoteSyncResult()
+        }
+        try {
+            lastNegativeRuntimeLookup.clear()
+            val enabledAccounts = _accounts.value.filter { it.isEnabled }
+            if (enabledAccounts.isEmpty()) {
+                return@withContext RemoteSyncResult(
+                    syncedAccounts = 0,
+                    activeRuntimes = 0,
+                    updatedVMs = 0,
+                    errorMessage = null
+                )
+            }
+
+            val accountsChanged = AtomicBoolean(false)
+            val vmsByAccount = _vms.value.groupBy { it.accountId }
+
+            data class AccountSyncOutcome(
+                val synced: Boolean,
+                val activeRuntimes: Int,
+                val updatedVMs: Int,
+                val error: String?
+            )
+
+            val outcomes = coroutineScope {
+                enabledAccounts.map { account ->
+                    async(Dispatchers.IO) {
+                        val prevOauth = account.oauthToken
+                        val prevToken = account.tokenOrCookie
+                        val token = ColabApiEngine.refreshOAuthTokenIfNeeded(account)
+                        if (account.oauthToken != prevOauth || account.tokenOrCookie != prevToken) {
+                            accountsChanged.set(true)
+                        }
+                        if (token.isBlank()) {
+                            return@async AccountSyncOutcome(
+                                synced = false,
+                                activeRuntimes = 0,
+                                updatedVMs = 0,
+                                error = "Missing OAuth token for ${account.email}"
+                            )
+                        }
+
+                        val assignmentsResult = colabApiEngine.listAssignments(token, hydrateProxyTokens = true)
+                        val accountVMs = vmsByAccount[account.id].orEmpty()
+                        var updatedCount = 0
+
+                        if (assignmentsResult.isSuccess) {
+                            val runtimes = assignmentsResult.getOrNull()
+                                .orEmpty()
+                                .filter { it.endpointUrl.isNotBlank() }
+                            val primaryRuntime = runtimes.firstOrNull()
+
+                            if (primaryRuntime != null) {
+                                val metrics = colabApiEngine.fetchMetrics(primaryRuntime).getOrNull()
+                                val discoveredTunnel = metrics?.tunnelEndpoint?.takeIf { isValidTunnelEndpoint(it) }
+                                    ?: run {
+                                        val needsTunnel = accountVMs.any { !isValidTunnelEndpoint(it.tunnelUrl) }
+                                        if (needsTunnel) {
+                                            try {
+                                                colabApiEngine.readFile(primaryRuntime, "tmp/colab_tunnel_endpoint.txt")
+                                                    .getOrNull()
+                                                    ?.trim()
+                                                    ?.takeIf { isValidTunnelEndpoint(it) }
+                                            } catch (e: CancellationException) {
+                                                throw e
+                                            } catch (_: Exception) {
+                                                null
+                                            }
+                                        } else {
+                                            null
+                                        }
+                                    }
+
+                                for (vm in accountVMs) {
+                                    setActiveRuntime(vm.id, primaryRuntime)
+                                    val latest = getVMById(vm.id) ?: continue
+                                    val targetTunnel = discoveredTunnel ?: latest.tunnelUrl
+                                    val updatedSsh = if (discoveredTunnel != null) {
+                                        val (host, port) = parseEndpoint(discoveredTunnel)
+                                        if (host.isNotBlank()) latest.sshConfig.copy(host = host, port = port) else latest.sshConfig
+                                    } else {
+                                        latest.sshConfig
+                                    }
+                                    val updatedVm = latest.copy(
+                                        status = VMStatus.RUNNING,
+                                        tunnelUrl = targetTunnel,
+                                        sshConfig = updatedSsh,
+                                        metrics = if (metrics != null && metrics.timestamp > 0L) metrics else latest.metrics
+                                    )
+                                    if (updatedVm != latest) {
+                                        updateVM(updatedVm)
+                                        updatedCount++
+                                    }
+                                }
+                            } else {
+                                // Remote API reports no active Colab assignments for this account.
+                                for (vm in accountVMs) {
+                                    val latest = getVMById(vm.id) ?: continue
+                                    if (latest.status == VMStatus.STARTING) continue
+
+                                    val tunnelEp = latest.tunnelUrl?.takeIf { isValidTunnelEndpoint(it) }
+                                        ?: latest.sshConfig.host.takeIf { it.isNotBlank() && it != "localhost" && isValidTunnelEndpoint(it) }
+                                            ?.let { "$it:${latest.sshConfig.port}" }
+                                    val httpMetrics = if (tunnelEp != null) {
+                                        val (host, _) = parseEndpoint(tunnelEp)
+                                        TelemetryEngine.fetchHttpMetrics(host)
+                                    } else {
+                                        null
+                                    }
+
+                                    if (httpMetrics != null) {
+                                        updateMetrics(latest.id, httpMetrics)
+                                        updatedCount++
+                                    } else {
+                                        _activeRuntimes.remove(latest.id)?.let { stale ->
+                                            colabApiEngine.invalidateKernelCache(stale.endpointUrl)
+                                        }
+                                        if (latest.status == VMStatus.RUNNING || latest.status == VMStatus.RECONNECTING) {
+                                            updateVM(latest.copy(status = VMStatus.STOPPED))
+                                            updatedCount++
+                                        }
+                                    }
+                                }
+                            }
+
+                            AccountSyncOutcome(
+                                synced = true,
+                                activeRuntimes = runtimes.size,
+                                updatedVMs = updatedCount,
+                                error = null
+                            )
+                        } else {
+                            // Fall back to direct HTTP telemetry probe if a VM already has a tunnel.
+                            for (vm in accountVMs) {
+                                val tunnelEp = vm.tunnelUrl?.takeIf { isValidTunnelEndpoint(it) } ?: continue
+                                val (host, _) = parseEndpoint(tunnelEp)
+                                val httpMetrics = TelemetryEngine.fetchHttpMetrics(host)
+                                if (httpMetrics != null) {
+                                    updateMetrics(vm.id, httpMetrics)
+                                    updatedCount++
+                                }
+                            }
+                            AccountSyncOutcome(
+                                synced = false,
+                                activeRuntimes = 0,
+                                updatedVMs = updatedCount,
+                                error = assignmentsResult.exceptionOrNull()?.message ?: "Colab API sync failed"
+                            )
+                        }
+                    }
+                }.awaitAll()
+            }
+
+            if (accountsChanged.get()) {
+                val refreshedById = enabledAccounts.associateBy { it.id }
+                val updatedAccounts = _accounts.updateAndGet { list ->
+                    list.map { acc -> refreshedById[acc.id]?.copy() ?: acc }
+                }
+                preferences.saveAccounts(updatedAccounts)
+            }
+
+            val syncedCount = outcomes.count { it.synced }
+            val activeCount = outcomes.sumOf { it.activeRuntimes }
+            val updatedVMsCount = outcomes.sumOf { it.updatedVMs }
+            val firstError = outcomes.firstOrNull { it.error != null }?.error
+
+            RemoteSyncResult(
+                syncedAccounts = syncedCount,
+                activeRuntimes = activeCount,
+                updatedVMs = updatedVMsCount,
+                errorMessage = if (syncedCount == 0) firstError else null
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            RemoteSyncResult(errorMessage = e.message ?: "Remote sync failed")
+        } finally {
+            _isRefreshing.value = false
+        }
     }
 
     companion object {

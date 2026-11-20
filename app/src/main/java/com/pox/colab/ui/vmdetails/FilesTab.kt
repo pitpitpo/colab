@@ -1,6 +1,9 @@
 package com.pox.colab.ui.vmdetails
 
+import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -35,12 +38,16 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -128,6 +136,32 @@ fun FilesTab(
     var showUploadDialog by remember { mutableStateOf(false) }
     var showNewFolderDialog by remember { mutableStateOf(false) }
     var fileToRename by remember { mutableStateOf<RemoteFile?>(null) }
+    var fileToDelete by remember { mutableStateOf<RemoteFile?>(null) }
+
+    val deviceFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val resolvedName = try {
+                    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) else null
+                    }
+                } catch (_: Exception) { null } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "upload.bin"
+
+                val bytes = try {
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                } catch (_: Exception) { null }
+
+                if (bytes != null) {
+                    showUploadDialog = false
+                    fileEngine.uploadFileBytes(resolvedName, bytes)
+                } else {
+                    Toast.makeText(context, "Unable to read selected file", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     LaunchedEffect(statusNotice) {
         statusNotice?.let {
@@ -409,7 +443,7 @@ fun FilesTab(
                             }
                         },
                         onRename = { fileToRename = file },
-                        onDelete = { fileEngine.deleteFile(file) }
+                        onDelete = { fileToDelete = file }
                     )
                 }
             }
@@ -560,10 +594,29 @@ fun FilesTab(
                         .imePadding(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    FilledTonalButton(
+                        onClick = { deviceFilePicker.launch(arrayOf("*/*")) },
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("files_pick_device_file_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AttachFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Pick File from Device",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                     OutlinedTextField(
                         value = uploadFileName,
                         onValueChange = { uploadFileName = it },
-                        label = { Text("File Name") },
+                        label = { Text("Or Create New File Name") },
                         placeholder = { Text("e.g. main.py") },
                         singleLine = true,
                         shape = RoundedCornerShape(18.dp),
@@ -577,7 +630,7 @@ fun FilesTab(
                         textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(160.dp),
+                            .height(140.dp),
                         shape = RoundedCornerShape(18.dp),
                         maxLines = 8
                     )
@@ -643,6 +696,57 @@ fun FilesTab(
             },
             dismissButton = {
                 TextButton(onClick = { fileToRename = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    fileToDelete?.let { file ->
+        AlertDialog(
+            onDismissRequest = { fileToDelete = null },
+            properties = DialogProperties(decorFitsSystemWindows = true),
+            shape = RoundedCornerShape(32.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text(
+                    text = if (file.isDirectory) "Delete Folder?" else "Delete File?",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Permanently delete \"${file.name}\" from the remote Colab instance?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        fileEngine.deleteFile(file)
+                        fileToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    shape = CircleShape,
+                    modifier = Modifier.testTag("confirm_delete_file_button")
+                ) {
+                    Text("Delete", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { fileToDelete = null }) {
                     Text("Cancel")
                 }
             }

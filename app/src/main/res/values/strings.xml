@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">Colab</string>
+    <string name="sync_no_accounts">Connect a Google account to sync with Colab</string>
+    <string name="sync_active_runtimes_single">Synced 1 active Colab runtime</string>
+    <string name="sync_active_runtimes_plural">Synced %1$d active Colab runtimes</string>
+    <string name="sync_no_active_runtimes">Synced with Colab • No active runtimes</string>
+    <string name="sync_failed_generic">Unable to sync with Google Colab</string>
 </resources>

@@ -128,7 +128,7 @@ class FileManagerEngine(
             val repo = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
             val repoEp = repo?.getVMById(vm.id)?.tunnelUrl?.takeIf { VMRepository.isValidTunnelEndpoint(it) }
             val runtime = if (repoEp == null) {
-                repo?.getActiveRuntime(vm.id) ?: repo?.resolveActiveRuntime(vm.id)
+                repo?.ensureFreshRuntime(vm.id)
             } else null
             val fileEp = if (repoEp == null && runtime != null && runtime.endpointUrl.isNotBlank()) {
                 try {
@@ -231,7 +231,7 @@ class FileManagerEngine(
         refreshJob = scope.launch(Dispatchers.IO) {
             try {
                 val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
-                val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+                val runtime = repository?.ensureFreshRuntime(vm.id)
 
                 if (runtime != null && runtime.endpointUrl.isNotBlank()) {
                     val result = ColabApiEngine.getInstance().listFiles(runtime, targetPath)
@@ -301,7 +301,7 @@ class FileManagerEngine(
 
     suspend fun readFileContent(file: RemoteFile): String = withContext(Dispatchers.IO) {
         val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
-        val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+        val runtime = repository?.ensureFreshRuntime(vm.id)
         if (runtime != null && runtime.endpointUrl.isNotBlank()) {
             val res = ColabApiEngine.getInstance().readFile(runtime, file.path)
             if (res.isSuccess) {
@@ -342,12 +342,12 @@ class FileManagerEngine(
         val localFile = File(downloadDir, safeName)
 
         val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
-        val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+        val runtime = repository?.ensureFreshRuntime(vm.id)
         if (runtime != null && runtime.endpointUrl.isNotBlank()) {
-            val res = ColabApiEngine.getInstance().readFile(runtime, file.path)
+            val res = ColabApiEngine.getInstance().readFileBytes(runtime, file.path)
             if (res.isSuccess) {
-                val content = res.getOrNull() ?: ""
-                localFile.writeText(content, Charsets.UTF_8)
+                val bytes = res.getOrNull() ?: ByteArray(0)
+                localFile.writeBytes(bytes)
                 _statusNotice.value = "Downloaded to: ${localFile.name}"
                 return@withContext Result.success(localFile)
             }
@@ -375,7 +375,7 @@ class FileManagerEngine(
         val bytes = content.toByteArray(Charsets.UTF_8)
 
         val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
-        val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+        val runtime = repository?.ensureFreshRuntime(vm.id)
         if (runtime != null && runtime.endpointUrl.isNotBlank()) {
             val res = ColabApiEngine.getInstance().writeFile(runtime, targetPath, content)
             if (res.isSuccess) {
@@ -420,11 +420,62 @@ class FileManagerEngine(
         }
     }
 
+    suspend fun uploadFileBytes(name: String, bytes: ByteArray): Result<RemoteFile> = withContext(Dispatchers.IO) {
+        val safeName = File(name).name.ifBlank { "upload.bin" }
+        val current = _currentPath.value
+        val targetPath = if (current.endsWith("/")) "$current$safeName" else "$current/$safeName"
+
+        val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
+        val runtime = repository?.ensureFreshRuntime(vm.id)
+        if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+            val res = ColabApiEngine.getInstance().writeFileBytes(runtime, targetPath, bytes)
+            if (res.isSuccess) {
+                invalidateCache(current)
+                refreshDirectory(current, forceRefresh = true)
+                _statusNotice.value = "Uploaded: $safeName"
+                return@withContext Result.success(
+                    RemoteFile(
+                        name = safeName,
+                        path = targetPath,
+                        isDirectory = false,
+                        sizeBytes = bytes.size.toLong(),
+                        modifiedTimestamp = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+
+        try {
+            withSftp { sftp ->
+                ByteArrayInputStream(bytes).use { inStream ->
+                    sftp.put(inStream, targetPath)
+                }
+            }
+            invalidateCache(current)
+            refreshDirectory(current, forceRefresh = true)
+            _statusNotice.value = "Uploaded: $safeName"
+            Result.success(
+                RemoteFile(
+                    name = safeName,
+                    path = targetPath,
+                    isDirectory = false,
+                    sizeBytes = bytes.size.toLong(),
+                    modifiedTimestamp = System.currentTimeMillis()
+                )
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _statusNotice.value = "Upload failed: ${e.message}"
+            Result.failure(e)
+        }
+    }
+
     fun createFolder(name: String) {
         scope.launch(Dispatchers.IO) {
             val current = _currentPath.value
             val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
-            val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+            val runtime = repository?.ensureFreshRuntime(vm.id)
             if (runtime != null && runtime.endpointUrl.isNotBlank()) {
                 val res = ColabApiEngine.getInstance().createDirectory(runtime, current, name)
                 if (res.isSuccess) {
@@ -453,7 +504,7 @@ class FileManagerEngine(
         scope.launch(Dispatchers.IO) {
             val current = _currentPath.value
             val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
-            val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+            val runtime = repository?.ensureFreshRuntime(vm.id)
             if (runtime != null && runtime.endpointUrl.isNotBlank()) {
                 val res = ColabApiEngine.getInstance().deleteFile(runtime, file.path)
                 if (res.isSuccess) {
@@ -505,7 +556,7 @@ class FileManagerEngine(
         scope.launch(Dispatchers.IO) {
             val current = _currentPath.value
             val repository = try { com.pox.colab.ColabApp.instance.repository } catch (_: Exception) { null }
-            val runtime = repository?.getActiveRuntime(vm.id) ?: repository?.resolveActiveRuntime(vm.id)
+            val runtime = repository?.ensureFreshRuntime(vm.id)
             if (runtime != null && runtime.endpointUrl.isNotBlank()) {
                 val res = ColabApiEngine.getInstance().renameFile(runtime, file.path, newName)
                 if (res.isSuccess) {

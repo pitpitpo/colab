@@ -300,9 +300,9 @@ fun AddVMDialog(
                             }
 
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Hardware Preference", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Text("Hardware Accelerator", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                                 Text(
-                                    text = "Colab assigns the GPU available to the selected account; this label appears on the VM card.",
+                                    text = "Requests this accelerator from Colab (NONE allocates CPU; GPU availability depends on account quota).",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -333,30 +333,11 @@ fun AddVMDialog(
 
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("Shell Resilience Protocol", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    listOf(ResilientProtocol.TMUX_SSH, ResilientProtocol.MOSH_UDP).forEach { proto ->
-                                        val available = proto == ResilientProtocol.TMUX_SSH
-                                        val selected = selectedProtocol == proto
-                                        ExpressiveMorphingChip(
-                                            selected = selected,
-                                            enabled = available,
-                                            label = if (available) "tmux SSH" else "Mosh UDP (unavailable)",
-                                            onClick = { selectedProtocol = proto },
-                                            leading = if (selected) {
-                                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                                            } else null
-                                        )
-                                    }
-                                }
-                                Text(
-                                    text = "Mosh/UDP transport is not available in this build; tmux SSH is used instead.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                ExpressiveMorphingChip(
+                                    selected = selectedProtocol == ResilientProtocol.TMUX_SSH,
+                                    label = "tmux Anti-Disconnect SSH",
+                                    onClick = { selectedProtocol = ResilientProtocol.TMUX_SSH },
+                                    leading = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                 )
                             }
 
@@ -368,13 +349,11 @@ fun AddVMDialog(
                                         .horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    listOf(TunnelProvider.CLOUDFLARE, TunnelProvider.BORE, TunnelProvider.NGROK).forEach { tun ->
-                                        val available = tun != TunnelProvider.NGROK
+                                    listOf(TunnelProvider.CLOUDFLARE, TunnelProvider.BORE).forEach { tun ->
                                         val selected = selectedTunnelProvider == tun
                                         ExpressiveMorphingChip(
                                             selected = selected,
-                                            enabled = available,
-                                            label = if (available) tun.name else "Ngrok (needs token)",
+                                            label = tun.label,
                                             onClick = { selectedTunnelProvider = tun },
                                             leading = if (selected) {
                                                 { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
@@ -382,11 +361,6 @@ fun AddVMDialog(
                                         )
                                     }
                                 }
-                                Text(
-                                    text = "Ngrok requires an account auth token, which this build cannot provision.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
 
                             OutlinedTextField(

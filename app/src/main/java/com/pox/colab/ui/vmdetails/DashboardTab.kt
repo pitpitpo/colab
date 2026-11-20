@@ -30,9 +30,12 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeveloperBoard
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
@@ -65,6 +68,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -121,10 +125,20 @@ fun DashboardTab(
     LaunchedEffect(vm.id, host, port, shouldPollTelemetry) {
         if (!shouldPollTelemetry) return@LaunchedEffect
         var consecutiveMisses = 0
+        var lastKeepAliveMs = 0L
         while (isActive) {
             var gotMetrics = false
-            val runtime = repository.getActiveRuntime(vm.id) ?: repository.resolveActiveRuntime(vm.id)
+            val runtime = repository.ensureFreshRuntime(vm.id)
             if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                val nowMs = System.currentTimeMillis()
+                if (nowMs - lastKeepAliveMs >= 60_000L) {
+                    lastKeepAliveMs = nowMs
+                    try {
+                        repository.sendKeepAlive(vm.id)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Exception) {}
+                }
                 val curVm = repository.getVMById(vm.id)
                 if (curVm != null && !VMRepository.isValidTunnelEndpoint(curVm.tunnelUrl)) {
                     try {
@@ -421,17 +435,25 @@ fun DashboardTab(
                 ExpressiveSectionHeader(
                     title = "Resource Telemetry",
                     subtitle = "Live CPU, memory, GPU & storage gauges",
-                    trailing = if (hasTunnel) {
+                    trailing = if (hasTunnel || vm.status == VMStatus.RUNNING) {
                         {
                             FilledTonalIconButton(
                                 onClick = {
                                     scope.launch {
-                                        val metrics = TelemetryEngine.fetchHttpMetrics(host)
+                                        val runtime = repository.ensureFreshRuntime(vm.id)
+                                        val apiMetrics = if (runtime != null && runtime.endpointUrl.isNotBlank()) {
+                                            ColabApiEngine.getInstance().fetchMetrics(runtime).getOrNull()
+                                                ?.takeIf { it.timestamp > 0L }
+                                        } else null
+                                        val metrics = apiMetrics ?: if (hasTunnel) {
+                                            TelemetryEngine.fetchHttpMetrics(host)
+                                        } else null
                                         if (metrics != null) {
                                             repository.updateMetrics(vm.id, metrics)
-                                            Toast.makeText(context, "Telemetry updated via HTTP agent", Toast.LENGTH_SHORT).show()
+                                            val source = if (apiMetrics != null) "Colab API" else "HTTP agent"
+                                            Toast.makeText(context, "Telemetry updated via $source", Toast.LENGTH_SHORT).show()
                                         } else {
-                                            Toast.makeText(context, "HTTP endpoint unreachable (telemetry streamed via SSH)", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Telemetry endpoint unreachable right now", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
@@ -439,7 +461,8 @@ fun DashboardTab(
                                 colors = IconButtonDefaults.filledTonalIconButtonColors(
                                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
+                                ),
+                                modifier = Modifier.testTag("dashboard_refresh_telemetry_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
@@ -614,6 +637,70 @@ fun DashboardTab(
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1
                                 )
+                            }
+                        }
+
+                        if (vm.status == VMStatus.RUNNING) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilledTonalButton(
+                                    onClick = {
+                                        scope.launch {
+                                            val res = repository.interruptKernel(vm.id)
+                                            val msg = if (res.isSuccess) "Jupyter kernel interrupted" else "Interrupt failed: ${res.exceptionOrNull()?.message}"
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = CircleShape,
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+                                    modifier = Modifier.testTag("dashboard_interrupt_kernel_button")
+                                ) {
+                                    Icon(Icons.Default.PauseCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Interrupt Kernel", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                FilledTonalButton(
+                                    onClick = {
+                                        scope.launch {
+                                            val res = repository.restartKernel(vm.id)
+                                            val msg = if (res.isSuccess) "Jupyter kernel restarted" else "Restart failed: ${res.exceptionOrNull()?.message}"
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = CircleShape,
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+                                    modifier = Modifier.testTag("dashboard_restart_kernel_button")
+                                ) {
+                                    Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Restart Kernel", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                FilledTonalButton(
+                                    onClick = {
+                                        scope.launch {
+                                            val res = repository.checkRuntimeHealth(vm.id)
+                                            val msg = res.fold(
+                                                onSuccess = { st -> "Runtime ${st.state} • ${st.kernels} kernel(s)" },
+                                                onFailure = { err -> "Health check failed: ${err.message}" }
+                                            )
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = CircleShape,
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+                                    modifier = Modifier.testTag("dashboard_health_check_button")
+                                ) {
+                                    Icon(Icons.Default.Favorite, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Health Check", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                }
                             }
                         }
 

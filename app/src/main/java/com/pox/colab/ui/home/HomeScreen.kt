@@ -44,7 +44,9 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -61,12 +63,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -115,13 +123,44 @@ fun HomeScreen(
     val accounts by repository.accounts.collectAsStateWithLifecycle()
     val activeAccount by repository.activeAccount.collectAsStateWithLifecycle()
     val isLoading by repository.isLoading.collectAsStateWithLifecycle()
+    val isRefreshing by repository.isRefreshing.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showSignInDialog by remember { mutableStateOf(false) }
     var accountMenuExpanded by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var vmToDelete by remember { mutableStateOf<ColabVM?>(null) }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val pullToRefreshState = rememberPullToRefreshState(
+        enabled = { scrollBehavior.state.collapsedFraction < 0.05f }
+    )
+
+    LaunchedEffect(pullToRefreshState.isRefreshing) {
+        if (pullToRefreshState.isRefreshing) {
+            val result = repository.syncWithRemoteApi()
+            pullToRefreshState.endRefresh()
+            val message = when {
+                accounts.none { it.isEnabled } -> context.getString(R.string.sync_no_accounts)
+                result.errorMessage != null && result.syncedAccounts == 0 ->
+                    result.errorMessage.ifBlank { context.getString(R.string.sync_failed_generic) }
+                result.activeRuntimes == 1 -> context.getString(R.string.sync_active_runtimes_single)
+                result.activeRuntimes > 1 -> context.getString(R.string.sync_active_runtimes_plural, result.activeRuntimes)
+                else -> context.getString(R.string.sync_no_active_runtimes)
+            }
+            snackbarHostState.showSnackbar(
+                message = message,
+                duration = SnackbarDuration.Short
+            )
+        }
+    }
+
+    LaunchedEffect(isRefreshing) {
+        if (!isRefreshing && pullToRefreshState.isRefreshing) {
+            pullToRefreshState.endRefresh()
+        }
+    }
 
     val accountsById = remember(accounts) { accounts.associateBy { it.id } }
     val filteredVms = remember(vms, searchQuery) {
@@ -132,6 +171,14 @@ fun HomeScreen(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(bottom = 84.dp)
+            )
+        },
         topBar = {
             LargeTopAppBar(
                 scrollBehavior = scrollBehavior,
@@ -318,15 +365,19 @@ fun HomeScreen(
             )
         }
     ) { innerPadding ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 340.dp),
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 180.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(innerPadding)
+                .nestedScroll(pullToRefreshState.nestedScrollConnection)
         ) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 340.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 180.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             if (vms.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     OutlinedTextField(
@@ -448,10 +499,20 @@ fun HomeScreen(
                             if (vm.status == VMStatus.RUNNING) repository.stopVM(vm.id)
                             else repository.spinUpVM(vm.id)
                         },
-                        onDelete = { repository.deleteVM(vm.id) }
+                        onDelete = { vmToDelete = vm }
                     )
                 }
             }
+            }
+
+            PullToRefreshContainer(
+                state = pullToRefreshState,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .testTag("home_pull_refresh_indicator"),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
 
         if (showAddDialog) {
@@ -479,6 +540,57 @@ fun HomeScreen(
                     repository.addAccount(context, email, name, accessToken, tier, tokenJson)
                     showSignInDialog = false
                     Toast.makeText(context, "Account connected: $email", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        vmToDelete?.let { targetVm ->
+            AlertDialog(
+                onDismissRequest = { vmToDelete = null },
+                shape = RoundedCornerShape(32.dp),
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Delete Instance?",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Remove \"${targetVm.name}\" and unassign any active Colab runtime associated with it?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            repository.deleteVM(targetVm.id)
+                            vmToDelete = null
+                            Toast.makeText(context, "Instance deleted", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        ),
+                        shape = CircleShape,
+                        modifier = Modifier.testTag("confirm_delete_vm_button")
+                    ) {
+                        Text("Delete", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { vmToDelete = null }) {
+                        Text("Cancel")
+                    }
                 }
             )
         }

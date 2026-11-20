@@ -41,8 +41,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -56,6 +59,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -84,7 +88,9 @@ import com.google.gson.JsonObject
 import com.pox.colab.BuildConfig
 import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
+import com.pox.colab.engine.ColabCcuInfo
 import com.pox.colab.engine.HttpClientProvider
+import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.RuntimeEngineMode
 import com.pox.colab.theme.MonoFontFamily
 import com.pox.colab.theme.resolveConsoleBackground
@@ -145,6 +151,9 @@ fun SettingsScreen(
     val vms by repository.vms.collectAsStateWithLifecycle()
 
     var showSignInDialog by remember { mutableStateOf(false) }
+    var accountToDelete by remember { mutableStateOf<ColabAccount?>(null) }
+    var accountCcuMap by remember { mutableStateOf<Map<String, ColabCcuInfo>>(emptyMap()) }
+    var checkingCcuAccountId by remember { mutableStateOf<String?>(null) }
 
     var runtimeEngineMode by remember { mutableStateOf(preferences.getRuntimeEngineMode()) }
 
@@ -336,10 +345,7 @@ fun SettingsScreen(
                                                 )
 
                                                 IconButton(
-                                                    onClick = {
-                                                        repository.removeAccount(context, acc.id)
-                                                        Toast.makeText(context, "Account removed", Toast.LENGTH_SHORT).show()
-                                                    }
+                                                    onClick = { accountToDelete = acc }
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Delete,
@@ -355,7 +361,8 @@ fun SettingsScreen(
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(start = 48.dp),
+                                                    .padding(start = 48.dp)
+                                                    .horizontalScroll(rememberScrollState()),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
@@ -382,6 +389,78 @@ fun SettingsScreen(
                                                         { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                                     } else null
                                                 )
+                                                val isCheckingCcu = checkingCcuAccountId == acc.id
+                                                ExpressiveMorphingChip(
+                                                    selected = accountCcuMap.containsKey(acc.id),
+                                                    enabled = !isCheckingCcu,
+                                                    label = if (isCheckingCcu) "Checking..." else "Quota",
+                                                    onClick = {
+                                                        scope.launch {
+                                                            checkingCcuAccountId = acc.id
+                                                            val res = repository.getAccountCcuInfo(acc.id)
+                                                            checkingCcuAccountId = null
+                                                            res.fold(
+                                                                onSuccess = { info ->
+                                                                    accountCcuMap = accountCcuMap + (acc.id to info)
+                                                                },
+                                                                onFailure = { err ->
+                                                                    Toast.makeText(
+                                                                        context,
+                                                                        "Quota check failed: ${err.message}",
+                                                                        Toast.LENGTH_SHORT
+                                                                    ).show()
+                                                                }
+                                                            )
+                                                        }
+                                                    },
+                                                    leading = {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Bolt,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    },
+                                                    modifier = Modifier.testTag("settings_check_ccu_${acc.id}")
+                                                )
+                                            }
+
+                                            accountCcuMap[acc.id]?.let { ccu ->
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(start = 48.dp)
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = String.format(
+                                                                java.util.Locale.US,
+                                                                "%.1f CCU • %.2f/hr • %d active",
+                                                                ccu.currentBalance,
+                                                                ccu.consumptionRateHourly,
+                                                                ccu.assignmentsCount
+                                                            ),
+                                                            style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFontFamily),
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        )
+                                                        if (ccu.eligibleGpus.isNotEmpty() || ccu.eligibleTpus.isNotEmpty()) {
+                                                            val hwSummary = (ccu.eligibleGpus + ccu.eligibleTpus).joinToString(" • ")
+                                                            Text(
+                                                                text = "Eligible: $hwSummary",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -874,6 +953,66 @@ fun SettingsScreen(
                     repository.addAccount(context, email, name, accessToken, tier, tokenJson)
                     showSignInDialog = false
                     Toast.makeText(context, "Account connected & CLI instance initialized in Alpine", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        accountToDelete?.let { acc ->
+            val linkedVmCount = vms.count { it.accountId == acc.id }
+            val vmSummary = when (linkedVmCount) {
+                0 -> "No saved VM instances are linked to this account."
+                1 -> "1 linked VM instance will also be removed and any active Colab runtime will be unassigned."
+                else -> "$linkedVmCount linked VM instances will also be removed and any active Colab runtimes will be unassigned."
+            }
+            AlertDialog(
+                onDismissRequest = { accountToDelete = null },
+                shape = RoundedCornerShape(28.dp),
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Remove account?",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Disconnect ${acc.email} and clear its stored OAuth credentials and CLI config. $vmSummary",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            repository.removeAccount(context, acc.id)
+                            accountCcuMap = accountCcuMap - acc.id
+                            accountToDelete = null
+                            Toast.makeText(context, "Account removed", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        ),
+                        modifier = Modifier.testTag("confirm_delete_account_button")
+                    ) {
+                        Text("Remove", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { accountToDelete = null },
+                        shape = CircleShape
+                    ) {
+                        Text("Cancel")
+                    }
                 }
             )
         }

@@ -7,9 +7,12 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.pox.colab.MainActivity
 import com.pox.colab.R
 
@@ -39,7 +42,12 @@ class SSHBackgroundService : Service() {
         } catch (_: Exception) {}
         val notification = buildNotification(vmName)
         try {
-            startForeground(NOTIFICATION_ID, notification)
+            val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            } else {
+                0
+            }
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, serviceType)
         } catch (_: Exception) {
             stopSelf()
             return START_NOT_STICKY
@@ -82,7 +90,7 @@ class SSHBackgroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Active Session: $vmName")
             .setContentText("Resilient SSH tmux connection active in background")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_colab_logo)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()

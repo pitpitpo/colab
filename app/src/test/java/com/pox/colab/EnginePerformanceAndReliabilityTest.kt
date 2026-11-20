@@ -132,7 +132,7 @@ class EnginePerformanceAndReliabilityTest {
     }
 
     @Test
-    fun `terminateRuntime evicts cached kernel ID and sends runtime proxy headers`() = runBlocking {
+    fun `terminateRuntime evicts cached kernel ID and sends runtime proxy headers on proxy-only fallback`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200).setBody("ok"))
         val engine = ColabApiEngine(httpClientProvider = { OkHttpClient() })
         val runtime = ColabRuntime(
@@ -142,7 +142,7 @@ class EnginePerformanceAndReliabilityTest {
             proxyToken = "proxy-secret-tok"
         )
 
-        val result = engine.terminateRuntime("bearer-1", runtime)
+        val result = engine.terminateRuntime("", runtime)
         assertTrue(result.isSuccess)
         assertNull(engine.getCachedKernelId(runtime.endpointUrl))
 
