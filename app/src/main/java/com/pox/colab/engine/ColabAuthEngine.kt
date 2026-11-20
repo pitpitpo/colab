@@ -1,17 +1,22 @@
 package com.pox.colab.engine
 
 import android.util.Base64
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
-import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.util.concurrent.TimeUnit
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+import java.util.concurrent.ConcurrentHashMap
 
 data class OAuthUserProfile(
     val email: String,
@@ -51,30 +56,26 @@ object ColabAuthEngine {
         "https://www.googleapis.com/auth/colaboratory"
     )
 
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
-
-    private val sessionMap = java.util.concurrent.ConcurrentHashMap<String, ColabAuthSession>()
+    private val httpClient get() = HttpClientProvider.authClient
+    private val secureRandom = SecureRandom()
+    private val sessionMap = ConcurrentHashMap<String, ColabAuthSession>()
 
     /**
      * Creates a new cryptographically authentic Colab CLI OAuth 2.0 PKCE Session
-     * exactly identical to google_auth_oauthlib.flow.InstalledAppFlow in google-colab-cli.
+     * identical to google_auth_oauthlib.flow.InstalledAppFlow in google-colab-cli.
      */
     fun createAuthSession(): ColabAuthSession {
-        // RFC 7636 PKCE code_verifier (64 random bytes, URL safe, no padding)
+        cleanExpiredSessions()
+
         val verifierBytes = ByteArray(64)
-        SecureRandom().nextBytes(verifierBytes)
+        secureRandom.nextBytes(verifierBytes)
         val codeVerifier = Base64.encodeToString(verifierBytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP).trim()
 
-        // S256 code_challenge = base64url(sha256(code_verifier))
         val sha256Digest = MessageDigest.getInstance("SHA-256").digest(codeVerifier.toByteArray(StandardCharsets.US_ASCII))
         val codeChallenge = Base64.encodeToString(sha256Digest, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP).trim()
 
-        // Random state parameter
         val stateBytes = ByteArray(24)
-        SecureRandom().nextBytes(stateBytes)
+        secureRandom.nextBytes(stateBytes)
         val state = Base64.encodeToString(stateBytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP).trim()
 
         val scopeParam = URLEncoder.encode(SCOPES.joinToString(" "), StandardCharsets.UTF_8.name())
@@ -105,6 +106,7 @@ object ColabAuthEngine {
     }
 
     fun getOrNewAuthSession(): ColabAuthSession {
+        cleanExpiredSessions()
         return sessionMap.values.maxByOrNull { it.createdAt } ?: createAuthSession()
     }
 
@@ -136,8 +138,8 @@ object ColabAuthEngine {
 
     /**
      * Exchanges the authorization code received from Google's applicationdefaultauthcode.html
-     * landing page for OAuth credentials using PKCE verification, then automatically fetches
-     * Google user info and detects Colab compute unit subscription tier without manual entry.
+     * landing page for OAuth credentials using PKCE verification, then concurrently fetches
+     * Google user info (when needed) and detects Colab compute unit subscription tier.
      */
     suspend fun authenticateWithCodeOrToken(
         inputCodeOrToken: String,
@@ -154,6 +156,7 @@ object ColabAuthEngine {
             var accessToken = trimmed
             var refreshToken: String? = null
             var idToken: String? = null
+            var expiresInSec = 3600L
 
             // If not a pre-existing bearer token (ya29...), perform OAuth2 token exchange
             if (!trimmed.startsWith("ya29.")) {
@@ -189,6 +192,7 @@ object ColabAuthEngine {
                     accessToken = json.optString("access_token", "")
                     refreshToken = json.optString("refresh_token").takeIf { it.isNotBlank() }
                     idToken = json.optString("id_token").takeIf { it.isNotBlank() }
+                    expiresInSec = json.optLong("expires_in", 3600L).coerceAtLeast(60L)
                 }
             }
 
@@ -196,93 +200,44 @@ object ColabAuthEngine {
                 return@withContext Result.failure(Exception("No valid access token received from Google OAuth"))
             }
 
-            // Step 2: Automatically extract identity from ID token and/or Google UserInfo API
-            var fetchedEmail = ""
-            var fetchedName = ""
-
-            // Strategy A: Decode id_token JWT payload if available
+            // Step 2: Decode identity from id_token JWT payload if available
+            var jwtEmail = ""
+            var jwtName = ""
             idToken?.let { jwt ->
                 try {
                     val parts = jwt.split(".")
                     if (parts.size >= 2) {
                         val payloadBytes = Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
                         val payloadJson = JSONObject(String(payloadBytes, StandardCharsets.UTF_8))
-                        fetchedEmail = payloadJson.optString("email", "")
-                        fetchedName = payloadJson.optString("name", "")
+                        jwtEmail = payloadJson.optString("email", "")
+                        jwtName = payloadJson.optString("name", "")
                     }
                 } catch (_: Exception) {}
             }
 
-            // Strategy B: Query Google UserInfo API using access_token
-            if (fetchedEmail.isBlank()) {
-                try {
-                    val userinfoRequest = Request.Builder()
-                        .url(USERINFO_URI)
-                        .header("Authorization", "Bearer $accessToken")
-                        .get()
-                        .build()
-
-                    httpClient.newCall(userinfoRequest).execute().use { userinfoResp ->
-                        if (userinfoResp.isSuccessful) {
-                            val uBody = userinfoResp.body?.string() ?: ""
-                            val uJson = JSONObject(uBody)
-                            fetchedEmail = uJson.optString("email", "")
-                            if (fetchedName.isBlank()) {
-                                fetchedName = uJson.optString("name", "")
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-
-            if (fetchedEmail.isBlank()) {
-                fetchedEmail = "google.colab.user@gmail.com"
-            }
-            if (fetchedName.isBlank()) {
-                fetchedName = fetchedEmail.substringBefore("@")
-            }
-
-            // Step 3: Automatically detect Colab tier via CCU endpoint (/tun/m/ccu-info)
-            var detectedTier = "Free"
-            try {
-                val ccuRequest = Request.Builder()
-                    .url("$COLAB_DOMAIN/tun/m/ccu-info?authuser=0")
-                    .header("Authorization", "Bearer $accessToken")
-                    .header("Accept", "application/json")
-                    .header("X-Colab-Client-Agent", "colab-cli")
-                    .get()
-                    .build()
-
-                httpClient.newCall(ccuRequest).execute().use { ccuResp ->
-                    if (ccuResp.isSuccessful) {
-                        var ccuBody = ccuResp.body?.string() ?: ""
-                        // Strip Google XSSI prefix ")]}'\n"
-                        if (ccuBody.startsWith(")]}'\n")) {
-                            ccuBody = ccuBody.substring(")]}'\n".length)
-                        } else if (ccuBody.startsWith(")]}'")) {
-                            ccuBody = ccuBody.substring(4).trimStart()
-                        }
-
-                        val ccuJson = JSONObject(ccuBody)
-                        val balance = ccuJson.optDouble("currentBalance", 0.0)
-                        val rate = ccuJson.optDouble("consumptionRateHourly", 0.0)
-
-                        detectedTier = when {
-                            balance > 0.0 || rate > 0.0 -> "Pro"
-                            else -> "Free"
-                        }
+            // Step 2B & Step 3 in parallel: UserInfo lookup (only if JWT lacked email) + CCU tier probe
+            val (userInfoResult, detectedTier) = coroutineScope {
+                val userInfoDeferred = async(Dispatchers.IO) {
+                    if (jwtEmail.isNotBlank()) {
+                        jwtEmail to jwtName
+                    } else {
+                        fetchUserInfo(accessToken, jwtName)
                     }
                 }
-            } catch (_: Exception) {
-                // Default to Free tier if network or quota check is inconclusive
-                detectedTier = "Free"
+                val tierDeferred = async(Dispatchers.IO) {
+                    detectColabTier(accessToken)
+                }
+                userInfoDeferred.await() to tierDeferred.await()
             }
 
+            val fetchedEmail = userInfoResult.first.ifBlank { "google.colab.user@gmail.com" }
+            val fetchedName = userInfoResult.second.ifBlank { fetchedEmail.substringBefore("@") }
+
             // Step 4: Serialize in authentic ~/.config/colab-cli/token.json format with RFC3339 expiry
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
-                timeZone = java.util.TimeZone.getTimeZone("UTC")
-            }
-            val expiryRfc3339 = sdf.format(java.util.Date(System.currentTimeMillis() + 3600_000L))
+            val expiryRfc3339 = Instant.now()
+                .plusSeconds(expiresInSec)
+                .truncatedTo(ChronoUnit.SECONDS)
+                .toString()
 
             val tokenJsonObj = JSONObject().apply {
                 put("token", accessToken)
@@ -290,11 +245,14 @@ object ColabAuthEngine {
                 put("token_uri", TOKEN_URI)
                 put("client_id", CLIENT_ID)
                 put("client_secret", CLIENT_SECRET)
-                put("scopes", org.json.JSONArray(SCOPES))
+                put("scopes", JSONArray(SCOPES))
                 put("universe_domain", "googleapis.com")
                 put("account", fetchedEmail)
                 put("expiry", expiryRfc3339)
             }
+
+            // Remove consumed session from cache
+            session?.state?.let { sessionMap.remove(it) }
 
             Result.success(
                 OAuthUserProfile(
@@ -307,8 +265,63 @@ object ColabAuthEngine {
                     tokenJson = tokenJsonObj.toString()
                 )
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private fun fetchUserInfo(accessToken: String, fallbackName: String): Pair<String, String> {
+        return try {
+            val userinfoRequest = Request.Builder()
+                .url(USERINFO_URI)
+                .header("Authorization", "Bearer $accessToken")
+                .get()
+                .build()
+
+            httpClient.newCall(userinfoRequest).execute().use { userinfoResp ->
+                if (userinfoResp.isSuccessful) {
+                    val uBody = userinfoResp.body?.string() ?: ""
+                    val uJson = JSONObject(uBody)
+                    val email = uJson.optString("email", "")
+                    val name = fallbackName.ifBlank { uJson.optString("name", "") }
+                    email to name
+                } else {
+                    "" to fallbackName
+                }
+            }
+        } catch (_: Exception) {
+            "" to fallbackName
+        }
+    }
+
+    private fun detectColabTier(accessToken: String): String {
+        return try {
+            val ccuRequest = Request.Builder()
+                .url("$COLAB_DOMAIN/tun/m/ccu-info?authuser=0")
+                .header("Authorization", "Bearer $accessToken")
+                .header("Accept", "application/json")
+                .header("X-Colab-Client-Agent", "colab-cli")
+                .get()
+                .build()
+
+            httpClient.newCall(ccuRequest).execute().use { ccuResp ->
+                if (!ccuResp.isSuccessful) return "Free"
+                var ccuBody = ccuResp.body?.string() ?: ""
+                if (ccuBody.startsWith(")]}'\n")) {
+                    ccuBody = ccuBody.substring(")]}'\n".length)
+                } else if (ccuBody.startsWith(")]}'")) {
+                    ccuBody = ccuBody.substring(4).trimStart()
+                }
+
+                val ccuJson = JSONObject(ccuBody)
+                val balance = ccuJson.optDouble("currentBalance", 0.0)
+                val rate = ccuJson.optDouble("consumptionRateHourly", 0.0)
+                if (balance > 0.0 || rate > 0.0) "Pro" else "Free"
+            }
+        } catch (_: Exception) {
+            "Free"
         }
     }
 }

@@ -1,6 +1,5 @@
 package com.pox.colab.ui.component.shimmer
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.pox.colab.ui.component.expressive.ExpressiveShapes
 
 @Composable
 fun GridItemPlaceholder(
@@ -27,38 +27,36 @@ fun GridItemPlaceholder(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            // Header: status dot & titles
+        Column(modifier = Modifier.padding(22.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .shimmer()
-                )
-
-                Spacer(modifier = Modifier.width(12.dp))
-
                 Column(modifier = Modifier.weight(1f)) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.55f)
-                            .height(16.dp)
+                            .width(88.dp)
+                            .height(24.dp)
+                            .clip(CircleShape)
+                            .shimmer()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.62f)
+                            .height(22.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .shimmer()
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.35f)
-                            .height(12.dp)
+                            .fillMaxWidth(0.42f)
+                            .height(14.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .shimmer()
                     )
@@ -72,83 +70,43 @@ fun GridItemPlaceholder(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Semantic Chips
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(
                     modifier = Modifier
-                        .width(72.dp)
-                        .height(28.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .width(92.dp)
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .shimmer()
                 )
                 Box(
                     modifier = Modifier
-                        .width(96.dp)
-                        .height(28.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .width(108.dp)
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .shimmer()
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            // Metrics Box
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceAround
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(60.dp)
-                            .height(20.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .shimmer()
-                    )
-                    Box(
-                        modifier = Modifier
-                            .width(60.dp)
-                            .height(20.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .shimmer()
-                    )
-                    Box(
-                        modifier = Modifier
-                            .width(60.dp)
-                            .height(20.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .shimmer()
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Bottom Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .height(44.dp)
+                        .clip(ExpressiveShapes.connectedStart)
                         .shimmer()
                 )
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .height(44.dp)
+                        .clip(ExpressiveShapes.connectedEnd)
                         .shimmer()
                 )
             }

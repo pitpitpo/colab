@@ -3,30 +3,30 @@ package com.pox.colab.engine
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
-import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.pox.colab.model.ColabAccount
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.zip.GZIPInputStream
 
 /**
@@ -95,8 +95,8 @@ class AlpineAppContainerManager internal constructor(
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val gson = Gson()
-    private val httpClient by lazy { OkHttpClient() }
+    private val gson get() = HttpClientProvider.gson
+    private val httpClient get() = HttpClientProvider.apiClient
 
     private val baseDir = context?.filesDir ?: File(System.getProperty("java.io.tmpdir") ?: "/tmp")
     val containerRoot: File = customRootDir ?: File(baseDir, "alpine_container")
@@ -317,19 +317,26 @@ class AlpineAppContainerManager internal constructor(
     fun extractTarGz(tarGzFile: File, destDir: File): Boolean {
         if (!tarGzFile.exists()) return false
         try {
-            FileInputStream(tarGzFile).use { fis ->
-                GZIPInputStream(fis).use { gis ->
+            if (!destDir.exists()) destDir.mkdirs()
+            val canonicalDest = destDir.canonicalPath
+            val canonicalDestPrefix = if (canonicalDest.endsWith(File.separator)) {
+                canonicalDest
+            } else {
+                canonicalDest + File.separator
+            }
+            val copyBuf = ByteArray(16 * 1024)
+
+            BufferedInputStream(FileInputStream(tarGzFile), 32 * 1024).use { bis ->
+                GZIPInputStream(bis, 32 * 1024).use { gis ->
                     val buffer = ByteArray(512)
                     while (true) {
                         val bytesRead = readFully(gis, buffer, 512)
                         if (bytesRead < 512) break
 
-                        // All zeroes header indicates end of archive block
                         if (buffer.all { it == 0.toByte() }) {
                             continue
                         }
 
-                        // File name: bytes 0..99
                         var nameEnd = 0
                         while (nameEnd < 100 && buffer[nameEnd] != 0.toByte()) {
                             nameEnd++
@@ -337,7 +344,6 @@ class AlpineAppContainerManager internal constructor(
                         if (nameEnd == 0) continue
                         val rawName = String(buffer, 0, nameEnd, StandardCharsets.UTF_8).trim()
 
-                        // Optional ustar prefix: bytes 345..499
                         var prefixEnd = 0
                         while (prefixEnd < 155 && buffer[345 + prefixEnd] != 0.toByte()) {
                             prefixEnd++
@@ -348,14 +354,15 @@ class AlpineAppContainerManager internal constructor(
 
                         val entryName = if (prefix.isNotEmpty()) "$prefix/$rawName" else rawName
                         val normalized = entryName.trimStart('/', '.')
+                        if (normalized.isEmpty()) continue
                         val targetFile = File(destDir, normalized)
 
-                        // Path traversal guard
-                        if (!targetFile.canonicalPath.startsWith(destDir.canonicalPath)) {
+                        // Strict path traversal guard (prevents sibling prefix bypass)
+                        val canonicalTarget = targetFile.canonicalPath
+                        if (canonicalTarget != canonicalDest && !canonicalTarget.startsWith(canonicalDestPrefix)) {
                             continue
                         }
 
-                        // File size in octal: bytes 124..135
                         var sizeEnd = 0
                         while (sizeEnd < 12 && buffer[124 + sizeEnd] != 0.toByte() && buffer[124 + sizeEnd] != ' '.code.toByte()) {
                             sizeEnd++
@@ -372,9 +379,8 @@ class AlpineAppContainerManager internal constructor(
                             targetFile.parentFile?.mkdirs()
                             FileOutputStream(targetFile).use { fos ->
                                 var remaining = size
-                                val copyBuf = ByteArray(4096)
                                 while (remaining > 0) {
-                                    val toRead = Math.min(copyBuf.size.toLong(), remaining).toInt()
+                                    val toRead = minOf(copyBuf.size.toLong(), remaining).toInt()
                                     val r = gis.read(copyBuf, 0, toRead)
                                     if (r < 0) break
                                     fos.write(copyBuf, 0, r)
@@ -458,18 +464,32 @@ class AlpineAppContainerManager internal constructor(
             return@withContext executor(fullCmd, accountDir, env)
         }
 
+        var process: Process? = null
         try {
             val pb = ProcessBuilder(fullCmd)
                 .directory(accountDir)
             pb.environment().putAll(env)
 
-            val process = pb.start()
-            val stdout = process.inputStream.bufferedReader().use { it.readText() }
-            val stderr = process.errorStream.bufferedReader().use { it.readText() }
-            val exitCode = process.waitFor()
+            process = pb.start()
+            val proc = process
+            // Drain stdout and stderr concurrently to prevent OS pipe buffer deadlocks
+            val (stdout, stderr) = coroutineScope {
+                val outDeferred = async(Dispatchers.IO) {
+                    proc.inputStream.bufferedReader().use { it.readText() }
+                }
+                val errDeferred = async(Dispatchers.IO) {
+                    proc.errorStream.bufferedReader().use { it.readText() }
+                }
+                outDeferred.await() to errDeferred.await()
+            }
+            val exitCode = proc.waitFor()
 
             CliExecutionResult(exitCode = exitCode, stdout = stdout, stderr = stderr)
+        } catch (e: CancellationException) {
+            process?.destroyForcibly()
+            throw e
         } catch (e: Exception) {
+            process?.destroyForcibly()
             CliExecutionResult(exitCode = -1, stdout = "", stderr = e.message ?: "Execution failed")
         }
     }
@@ -543,15 +563,11 @@ class AlpineAppContainerManager internal constructor(
                 val obj = JSONObject(account.oauthToken)
                 val expiryVal = obj.optString("expiry", "")
                 if (expiryVal.toLongOrNull() != null) {
-                    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                        timeZone = TimeZone.getTimeZone("UTC")
-                    }
-                    obj.put("expiry", sdf.format(Date(expiryVal.toLong())))
+                    val millis = expiryVal.toLong()
+                    val instant = if (millis > 10_000_000_000L) Instant.ofEpochMilli(millis) else Instant.ofEpochSecond(millis)
+                    obj.put("expiry", instant.truncatedTo(ChronoUnit.SECONDS).toString())
                 } else if (expiryVal.isBlank()) {
-                    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                        timeZone = TimeZone.getTimeZone("UTC")
-                    }
-                    obj.put("expiry", sdf.format(Date(System.currentTimeMillis() + 3600_000L)))
+                    obj.put("expiry", Instant.now().plusSeconds(3600L).truncatedTo(ChronoUnit.SECONDS).toString())
                 }
                 if (!obj.has("token") || obj.optString("token").isBlank()) {
                     obj.put("token", cleanAccessToken)
@@ -598,10 +614,7 @@ class AlpineAppContainerManager internal constructor(
     }
 
     internal fun formatAuthenticTokenJson(token: String, email: String, refreshToken: String? = null): String {
-        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }
-        val expiryRfc3339 = sdf.format(Date(System.currentTimeMillis() + 3600_000L))
+        val expiryRfc3339 = Instant.now().plusSeconds(3600L).truncatedTo(ChronoUnit.SECONDS).toString()
         val obj = JSONObject().apply {
             put("token", token)
             put("refresh_token", refreshToken ?: token)
@@ -624,9 +637,8 @@ class AlpineAppContainerManager internal constructor(
         if (!accountDir.exists()) accountDir.mkdirs()
         val configFile = File(accountDir, "instance_config.json")
         try {
-            val type = object : TypeToken<MutableMap<String, Any>>() {}.type
             val map: MutableMap<String, Any> = if (configFile.exists()) {
-                gson.fromJson(configFile.readText(), type) ?: mutableMapOf()
+                gson.fromJson(configFile.readText(), MAP_STRING_ANY_TYPE) ?: mutableMapOf()
             } else {
                 mutableMapOf("accountId" to accountId, "registeredAt" to System.currentTimeMillis())
             }
@@ -703,6 +715,8 @@ class AlpineAppContainerManager internal constructor(
     }
 
     companion object {
+        private val MAP_STRING_ANY_TYPE = object : TypeToken<MutableMap<String, Any>>() {}.type
+
         // Application-scoped by design: getInstance() always stores context.applicationContext,
         // so this process-wide singleton cannot retain an Activity.
         @SuppressLint("StaticFieldLeak")

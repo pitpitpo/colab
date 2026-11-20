@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cable
@@ -21,37 +22,43 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
 import com.pox.colab.model.VMStatus
 import com.pox.colab.service.SSHBackgroundService
+import com.pox.colab.theme.MonoFontFamily
+import com.pox.colab.ui.component.expressive.ExpressiveFloatingTabBar
+import com.pox.colab.ui.component.expressive.ExpressiveTabItem
 import com.pox.colab.ui.home.StatusIndicatorDot
 import kotlinx.coroutines.launch
 
@@ -65,8 +72,8 @@ fun VMDetailsScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val vms by repository.vms.collectAsState()
-    val vm = vms.find { it.id == vmId }
+    val vms by repository.vms.collectAsStateWithLifecycle()
+    val vm = remember(vms, vmId) { vms.find { it.id == vmId } }
 
     var selectedTabIndex by remember(initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
     var showTunnelDialog by remember { mutableStateOf(false) }
@@ -76,7 +83,14 @@ fun VMDetailsScreen(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 TopAppBar(
-                    title = { Text("VM Instance", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    title = {
+                        Text(
+                            text = "VM Instance",
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Navigate Back")
@@ -103,7 +117,7 @@ fun VMDetailsScreen(
 
     val hasEndpoint = remember(vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
         VMRepository.isValidTunnelEndpoint(vm.tunnelUrl) ||
-        (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" && VMRepository.isValidTunnelEndpoint(vm.sshConfig.host))
+            (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" && VMRepository.isValidTunnelEndpoint(vm.sshConfig.host))
     }
 
     if (showTunnelDialog) {
@@ -116,10 +130,8 @@ fun VMDetailsScreen(
         )
     }
 
-    // Hoisted above the pager so the console survives tab switches while the pager itself
-    // keeps beyondBoundsPageCount = 0 (no eager connections on off-screen pages).
     val consoleScope = rememberCoroutineScope()
-    val sessionHolder = remember(vm.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
+    val sessionHolder = remember(vm.id) {
         ConsoleSessionHolder(
             vm = vm,
             scope = consoleScope,
@@ -154,15 +166,22 @@ fun VMDetailsScreen(
                         Column {
                             Text(
                                 text = vm.name,
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (hasEndpoint) "${vm.sshConfig.host}:${vm.sshConfig.port} • ${vm.sshConfig.resilientProtocol.label}"
-                                       else "Unconfigured Tunnel • ${vm.hardwareAccelerator.label}",
-                                style = MaterialTheme.typography.labelSmall,
+                                text = if (hasEndpoint) {
+                                    "${vm.sshConfig.host}:${vm.sshConfig.port}"
+                                } else {
+                                    "Auto Tunnel • ${vm.hardwareAccelerator.label}"
+                                },
+                                style = if (hasEndpoint) {
+                                    MaterialTheme.typography.labelSmall.copy(fontFamily = MonoFontFamily)
+                                } else {
+                                    MaterialTheme.typography.labelSmall
+                                },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -171,32 +190,71 @@ fun VMDetailsScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    FilledTonalIconButton(
+                        onClick = onNavigateBack,
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Navigate Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showTunnelDialog = true }) {
+                    FilledTonalIconButton(
+                        onClick = { showTunnelDialog = true },
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = if (hasEndpoint) {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            },
+                            contentColor = if (hasEndpoint) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Cable,
                             contentDescription = "Configure Tunnel Endpoint",
-                            tint = if (hasEndpoint) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
-                    IconButton(
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    FilledTonalIconButton(
                         onClick = {
                             if (vm.status == VMStatus.RUNNING) {
                                 repository.stopVM(vm.id)
                             } else {
                                 repository.spinUpVM(vm.id)
                             }
-                        }
+                        },
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = if (vm.status == VMStatus.RUNNING) {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.primaryContainer
+                            },
+                            contentColor = if (vm.status == VMStatus.RUNNING) {
+                                MaterialTheme.colorScheme.onErrorContainer
+                            } else {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            }
+                        ),
+                        modifier = Modifier.padding(end = 8.dp)
                     ) {
                         Icon(
                             imageVector = if (vm.status == VMStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
                             contentDescription = if (vm.status == VMStatus.RUNNING) "Stop instance" else "Start instance",
-                            tint = if (vm.status == VMStatus.RUNNING) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 },
@@ -212,7 +270,6 @@ fun VMDetailsScreen(
                 .padding(innerPadding)
                 .navigationBarsPadding()
         ) {
-            // Material 3 PrimaryTabRow: 1 Dashboard, 2 Console, 3 File Manager
             val pagerScope = rememberCoroutineScope()
             val pagerState = rememberPagerState(initialPage = initialTab.coerceIn(0, 2), pageCount = { 3 })
 
@@ -220,55 +277,23 @@ fun VMDetailsScreen(
                 selectedTabIndex = pagerState.currentPage
             }
 
-            PrimaryTabRow(
-                selectedTabIndex = selectedTabIndex,
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.primary
-            ) {
-                Tab(
-                    selected = selectedTabIndex == 0,
-                    onClick = {
-                        selectedTabIndex = 0
-                        pagerScope.launch { pagerState.animateScrollToPage(0) }
-                    },
-                    text = { Text("Dashboard", maxLines = 1, fontSize = 13.sp) },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Speed,
-                            contentDescription = "Dashboard",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+            val tabs = remember {
+                listOf(
+                    ExpressiveTabItem("Dashboard", Icons.Filled.Speed, Icons.Outlined.Speed),
+                    ExpressiveTabItem("Console", Icons.Filled.Terminal, Icons.Outlined.Terminal),
+                    ExpressiveTabItem("Files", Icons.Filled.Folder, Icons.Outlined.Folder)
                 )
-                Tab(
-                    selected = selectedTabIndex == 1,
-                    onClick = {
-                        selectedTabIndex = 1
-                        pagerScope.launch { pagerState.animateScrollToPage(1) }
+            }
+
+            Surface(color = MaterialTheme.colorScheme.surface) {
+                ExpressiveFloatingTabBar(
+                    tabs = tabs,
+                    selectedIndex = selectedTabIndex,
+                    onSelect = { index ->
+                        selectedTabIndex = index
+                        pagerScope.launch { pagerState.animateScrollToPage(index) }
                     },
-                    text = { Text("Console", maxLines = 1, fontSize = 13.sp) },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = "Console",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTabIndex == 2,
-                    onClick = {
-                        selectedTabIndex = 2
-                        pagerScope.launch { pagerState.animateScrollToPage(2) }
-                    },
-                    text = { Text("File Manager", maxLines = 1, fontSize = 13.sp) },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Folder,
-                            contentDescription = "File Manager",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
 

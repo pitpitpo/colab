@@ -2,12 +2,10 @@ package com.pox.colab.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Official Google Colab Brand Colors
 val ColabOrange = Color(0xFFF9AB00)
 val ColabAmber = Color(0xFFE8710A)
 val ColabYellow = Color(0xFFFDD663)
 
-// Pure AMOLED Black Palette
 val AmoledBlack = Color(0xFF000000)
 val DarkSurfaceLowest = Color(0xFF000000)
 val DarkSurfaceLow = Color(0xFF0C0C0C)
@@ -15,7 +13,6 @@ val DarkSurface = Color(0xFF121212)
 val DarkSurfaceHigh = Color(0xFF1A1A1A)
 val DarkSurfaceHighest = Color(0xFF242424)
 
-// Material 3 Dark Semantic Colors
 val PrimaryDark = Color(0xFFFFB77C)
 val OnPrimaryDark = Color(0xFF4D2700)
 val PrimaryContainerDark = Color(0xFF6E3900)
@@ -42,10 +39,9 @@ val SurfaceDark = Color(0xFF000000)
 val OnSurfaceDark = Color(0xFFEDE0D9)
 val SurfaceVariantDark = Color(0xFF1E1E1E)
 val OnSurfaceVariantDark = Color(0xFFD7C2B4)
-val OutlineDark = Color(0xFF3D3D3D)
-val OutlineVariantDark = Color(0xFF262626)
+val OutlineDark = Color(0xFF4A4440)
+val OutlineVariantDark = Color(0xFF2B2724)
 
-// Terminal ANSI standard colors
 val TerminalBackground = Color(0xFF0F141C)
 val TerminalGreen = Color(0xFF3FB950)
 val TerminalRed = Color(0xFFF85149)

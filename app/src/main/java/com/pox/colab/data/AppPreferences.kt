@@ -2,19 +2,19 @@ package com.pox.colab.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.pox.colab.engine.HttpClientProvider
 import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.RuntimeEngineMode
-
+import com.pox.colab.util.CryptoUtil
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class AppPreferences(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("colab_prefs", Context.MODE_PRIVATE)
-    private val gson = Gson()
+    private val gson = HttpClientProvider.gson
 
     private val _isDarkModeFlow = MutableStateFlow(isDarkMode())
     val isDarkModeFlow: StateFlow<Boolean> = _isDarkModeFlow.asStateFlow()
@@ -36,10 +36,9 @@ class AppPreferences(context: Context) {
 
     fun loadAccounts(): List<ColabAccount> {
         val raw = prefs.getString("accounts_json", null) ?: return emptyList()
-        val json = com.pox.colab.util.CryptoUtil.decrypt(raw)
+        val json = CryptoUtil.decrypt(raw)
         return try {
-            val type = object : TypeToken<List<ColabAccount>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
+            gson.fromJson(json, ACCOUNTS_LIST_TYPE) ?: emptyList()
         } catch (_: Exception) {
             emptyList()
         }
@@ -47,7 +46,7 @@ class AppPreferences(context: Context) {
 
     fun saveAccounts(accounts: List<ColabAccount>) {
         val json = gson.toJson(accounts)
-        val encrypted = com.pox.colab.util.CryptoUtil.encrypt(json)
+        val encrypted = CryptoUtil.encrypt(json)
         prefs.edit().putString("accounts_json", encrypted).apply()
     }
 
@@ -59,10 +58,9 @@ class AppPreferences(context: Context) {
 
     fun loadVMs(): List<ColabVM> {
         val raw = prefs.getString("vms_json", null) ?: return emptyList()
-        val json = com.pox.colab.util.CryptoUtil.decrypt(raw)
+        val json = CryptoUtil.decrypt(raw)
         return try {
-            val type = object : TypeToken<List<ColabVM>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
+            gson.fromJson(json, VMS_LIST_TYPE) ?: emptyList()
         } catch (_: Exception) {
             emptyList()
         }
@@ -70,7 +68,7 @@ class AppPreferences(context: Context) {
 
     fun saveVMs(vms: List<ColabVM>) {
         val json = gson.toJson(vms)
-        val encrypted = com.pox.colab.util.CryptoUtil.encrypt(json)
+        val encrypted = CryptoUtil.encrypt(json)
         prefs.edit().putString("vms_json", encrypted).apply()
     }
 
@@ -105,17 +103,22 @@ class AppPreferences(context: Context) {
     }
 
     fun getConsoleBgForVM(vmId: String): String =
-        prefs.getString("console_bg_vm_$vmId", getConsoleBackground()) ?: getConsoleBackground()
+        prefs.getString("console_bg_vm_$vmId", null) ?: getConsoleBackground()
 
     fun setConsoleBgForVM(vmId: String, bgKey: String) {
         prefs.edit().putString("console_bg_vm_$vmId", bgKey).apply()
     }
 
     fun getConsoleBgForTerminal(vmId: String, terminalId: String): String =
-        prefs.getString("console_bg_term_${vmId}_$terminalId", getConsoleBgForVM(vmId)) ?: getConsoleBgForVM(vmId)
+        prefs.getString("console_bg_term_${vmId}_$terminalId", null) ?: getConsoleBgForVM(vmId)
 
     fun setConsoleBgForTerminal(vmId: String, terminalId: String, bgKey: String) {
         prefs.edit().putString("console_bg_term_${vmId}_$terminalId", bgKey).apply()
+    }
+
+    companion object {
+        private val ACCOUNTS_LIST_TYPE = object : TypeToken<List<ColabAccount>>() {}.type
+        private val VMS_LIST_TYPE = object : TypeToken<List<ColabVM>>() {}.type
     }
 
     fun getRuntimeEngineMode(): RuntimeEngineMode {

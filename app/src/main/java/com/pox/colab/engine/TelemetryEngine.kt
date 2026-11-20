@@ -1,31 +1,27 @@
 package com.pox.colab.engine
 
 import com.pox.colab.model.VMMetrics
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 object TelemetryEngine {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(false)
-        .build()
+    private val client get() = HttpClientProvider.telemetryClient
 
     /**
      * Attempts to query the live metrics agent over HTTP on the specified host and port (defaults to 8080).
      */
     suspend fun fetchHttpMetrics(host: String, port: Int = 8080): VMMetrics? = withContext(Dispatchers.IO) {
-        if (host.isBlank()) return@withContext null
+        val trimmedHost = host.trim().trimEnd('/')
+        if (trimmedHost.isBlank()) return@withContext null
         try {
-            val url = if (host.startsWith("http://") || host.startsWith("https://")) {
-                "$host/api/status"
+            val url = if (trimmedHost.startsWith("http://") || trimmedHost.startsWith("https://")) {
+                "$trimmedHost/api/status"
             } else {
-                "http://$host:$port/api/status"
+                "http://$trimmedHost:$port/api/status"
             }
             val request = Request.Builder()
                 .url(url)
@@ -37,8 +33,10 @@ object TelemetryEngine {
                     return@withContext parseMetricsJson(body)
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
-            // Server not reachable or tunnel does not forward port 8080
+            // Server not reachable or tunnel does not forward telemetry HTTP port
         }
         return@withContext null
     }

@@ -32,8 +32,18 @@ class SSHBackgroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val vmName = intent?.getStringExtra(EXTRA_VM_NAME) ?: "VM"
+        try {
+            wakeLock?.let { wl ->
+                if (!wl.isHeld) wl.acquire(60 * 60 * 1000L)
+            }
+        } catch (_: Exception) {}
         val notification = buildNotification(vmName)
-        startForeground(NOTIFICATION_ID, notification)
+        try {
+            startForeground(NOTIFICATION_ID, notification)
+        } catch (_: Exception) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         return START_STICKY
     }
 

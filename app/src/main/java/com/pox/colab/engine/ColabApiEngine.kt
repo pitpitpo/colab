@@ -4,6 +4,7 @@ import com.pox.colab.model.ColabAccount
 import com.pox.colab.model.HardwareAccelerator
 import com.pox.colab.model.RemoteFile
 import com.pox.colab.model.VMMetrics
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,8 +19,12 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 
 // ---------------------------------------------------------------------------
 // Domain models
@@ -151,18 +156,60 @@ class ColabApiEngine(
         }
 
         /**
-         * Refreshes an expired Google OAuth access token using its refresh_token if present in [account].
-         * Updates the account in place and returns the fresh access token string.
+         * Returns true when [expiryRaw] is blank, unparseable, or expires within [bufferSeconds].
+         */
+        internal fun isTokenExpiringSoon(expiryRaw: String, bufferSeconds: Long = 120L): Boolean {
+            val trimmed = expiryRaw.trim()
+            if (trimmed.isBlank()) return true
+            val expiryInstant = try {
+                val numeric = trimmed.toLongOrNull()
+                when {
+                    numeric != null && numeric > 10_000_000_000L -> Instant.ofEpochMilli(numeric)
+                    numeric != null -> Instant.ofEpochSecond(numeric)
+                    else -> Instant.parse(trimmed)
+                }
+            } catch (_: Exception) {
+                return true
+            }
+            return Instant.now().plusSeconds(bufferSeconds).isAfter(expiryInstant)
+        }
+
+        /**
+         * Percent-encodes each path segment for Jupyter Contents API URLs while preserving slashes.
+         */
+        internal fun encodeContentPath(path: String): String {
+            val clean = path.trim().trimStart('/')
+            if (clean.isEmpty()) return ""
+            return clean.split('/')
+                .filter { it.isNotEmpty() }
+                .joinToString("/") { segment ->
+                    URLEncoder.encode(segment, StandardCharsets.UTF_8.name())
+                        .replace("+", "%20")
+                }
+        }
+
+        /**
+         * Refreshes an expired or near-expiry Google OAuth access token using its refresh_token
+         * if present in [account]. Skips the network round-trip when the cached token is still fresh.
+         * Updates [account] in place and returns the active access token string.
          */
         suspend fun refreshOAuthTokenIfNeeded(
             account: ColabAccount,
-            client: OkHttpClient = OkHttpClient()
+            client: OkHttpClient = HttpClientProvider.authClient,
+            forceRefresh: Boolean = false
         ): String = withContext(Dispatchers.IO) {
             val rawToken = account.oauthToken.ifBlank { account.tokenOrCookie }.trim()
             if (!rawToken.startsWith("{")) return@withContext extractBearerToken(account)
 
             try {
                 val json = JSONObject(rawToken)
+                val existingToken = json.optString("token", "").ifBlank { json.optString("access_token", "") }
+                val expiryStr = json.optString("expiry", "")
+
+                if (!forceRefresh && existingToken.isNotBlank() && !isTokenExpiringSoon(expiryStr)) {
+                    return@withContext existingToken
+                }
+
                 val refreshToken = json.optString("refresh_token", "")
                 val clientId = json.optString("client_id", "")
                 val clientSecret = json.optString("client_secret", "")
@@ -190,8 +237,14 @@ class ColabApiEngine(
                             val respJson = JSONObject(respBody)
                             val newAccessToken = respJson.optString("access_token", "")
                             if (newAccessToken.isNotBlank()) {
+                                val expiresIn = respJson.optLong("expires_in", 3600L).coerceAtLeast(60L)
+                                val newExpiry = Instant.now()
+                                    .plusSeconds(expiresIn)
+                                    .truncatedTo(ChronoUnit.SECONDS)
+                                    .toString()
                                 json.put("token", newAccessToken)
                                 json.put("access_token", newAccessToken)
+                                json.put("expiry", newExpiry)
                                 val updatedJson = json.toString()
                                 account.oauthToken = updatedJson
                                 account.tokenOrCookie = newAccessToken
@@ -200,6 +253,8 @@ class ColabApiEngine(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {}
 
             return@withContext extractBearerToken(account)
@@ -222,12 +277,21 @@ class ColabApiEngine(
     }
 
     private val client: OkHttpClient by lazy {
-        httpClientProvider?.invoke() ?: OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .build()
+        httpClientProvider?.invoke() ?: HttpClientProvider.apiClient
     }
+
+    /** Caches discovered/created Jupyter kernel IDs per normalized runtime endpoint URL. */
+    private val kernelIdCache = ConcurrentHashMap<String, String>()
+
+    fun invalidateKernelCache(endpointUrl: String) {
+        val key = endpointUrl.trimEnd('/')
+        if (key.isNotBlank()) {
+            kernelIdCache.remove(key)
+        }
+    }
+
+    internal fun getCachedKernelId(endpointUrl: String): String? =
+        kernelIdCache[endpointUrl.trimEnd('/')]
 
     // ---------------------------------------------------------------------------
     // Public API - String Token Overloads
@@ -325,6 +389,8 @@ class ColabApiEngine(
                     Result.success(parseAssignResponse(postBody, postRaw))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("allocateRuntime network error: ${e.message}", e))
         }
@@ -349,47 +415,53 @@ class ColabApiEngine(
                 return@withContext Result.failure(Exception("Cannot run code: endpointUrl is blank in ColabRuntime"))
             }
 
-            // Step 1: Discover or create an active Jupyter Kernel on the assigned Colab instance
+            // Step 1: Reuse cached Jupyter Kernel ID for this endpoint or discover/create one
+            var kernelId = kernelIdCache[endpoint] ?: ""
             val kernelsUrl = "$endpoint/api/kernels"
-            val kernelsReq = Request.Builder()
-                .url(kernelsUrl)
-                .get()
-                .apply {
-                    if (runtime.proxyToken.isNotBlank()) {
-                        header("Authorization", "Bearer ${runtime.proxyToken}")
-                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
-                    } else if (bearerToken.isNotBlank()) {
-                        header("Authorization", "Bearer $bearerToken")
-                    }
-                    header("X-Colab-Client-Agent", "colab-cli")
-                    header("Accept", "application/json")
-                }
-                .build()
 
-            var kernelId = ""
-            try {
-                client.newCall(kernelsReq).execute().use { response ->
-                    val rawBody = response.body?.string() ?: ""
-                    if (response.isSuccessful) {
-                        try {
-                            val array = JSONArray(rawBody)
-                            for (i in 0 until array.length()) {
-                                val k = array.optJSONObject(i) ?: continue
-                                val state = k.optString("execution_state", "")
-                                if (state == "idle") {
+            if (kernelId.isBlank()) {
+                val kernelsReq = Request.Builder()
+                    .url(kernelsUrl)
+                    .get()
+                    .apply {
+                        if (runtime.proxyToken.isNotBlank()) {
+                            header("Authorization", "Bearer ${runtime.proxyToken}")
+                            header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                        } else if (bearerToken.isNotBlank()) {
+                            header("Authorization", "Bearer $bearerToken")
+                        }
+                        header("X-Colab-Client-Agent", "colab-cli")
+                        header("Accept", "application/json")
+                    }
+                    .build()
+
+                try {
+                    client.newCall(kernelsReq).execute().use { response ->
+                        val rawBody = response.body?.string() ?: ""
+                        if (response.isSuccessful) {
+                            try {
+                                val array = JSONArray(rawBody)
+                                var fallbackCandidate = ""
+                                for (i in 0 until array.length()) {
+                                    val k = array.optJSONObject(i) ?: continue
                                     val candidate = k.optString("id", "")
-                                    if (candidate.isNotBlank()) {
+                                    if (candidate.isBlank()) continue
+                                    if (fallbackCandidate.isBlank()) fallbackCandidate = candidate
+                                    if (k.optString("execution_state", "") == "idle") {
                                         kernelId = candidate
                                         break
                                     }
                                 }
-                            }
-                        } catch (_: Exception) {}
+                                if (kernelId.isBlank()) kernelId = fallbackCandidate
+                            } catch (_: Exception) {}
+                        }
                     }
-                }
-            } catch (_: Exception) {}
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
+            }
 
-            // If no existing idle kernel, create a dedicated idle kernel via POST /api/kernels
+            // If no existing kernel, create a dedicated python3 kernel via POST /api/kernels
             if (kernelId.isBlank()) {
                 val createReq = Request.Builder()
                     .url(kernelsUrl)
@@ -415,10 +487,14 @@ class ColabApiEngine(
                             } catch (_: Exception) {}
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (_: Exception) {}
             }
 
-            if (kernelId.isBlank()) {
+            if (kernelId.isNotBlank()) {
+                kernelIdCache[endpoint] = kernelId
+            } else {
                 kernelId = runtime.sessionId.ifBlank { UUID.randomUUID().toString() }
             }
 
@@ -428,7 +504,8 @@ class ColabApiEngine(
                 .replace("http://", "ws://")
             val sessionId = UUID.randomUUID().toString()
             val wsUrl = if (runtime.proxyToken.isNotBlank()) {
-                "$wsBase/api/kernels/$kernelId/channels?session_id=$sessionId&token=${runtime.proxyToken}&colab-runtime-proxy-token=${runtime.proxyToken}"
+                val encodedToken = URLEncoder.encode(runtime.proxyToken, StandardCharsets.UTF_8.name())
+                "$wsBase/api/kernels/$kernelId/channels?session_id=$sessionId&token=$encodedToken&colab-runtime-proxy-token=$encodedToken"
             } else {
                 "$wsBase/api/kernels/$kernelId/channels?session_id=$sessionId"
             }
@@ -469,6 +546,7 @@ class ColabApiEngine(
             }
 
             val deferredResult = CompletableDeferred<CellExecutionResult>()
+            val bufferLock = Any()
             val stdoutBuilder = StringBuilder()
             val stderrBuilder = StringBuilder()
             var hasKernelError = false
@@ -490,35 +568,41 @@ class ColabApiEngine(
                                 "stream" -> {
                                     val name = content.optString("name", "stdout")
                                     val textOut = content.optString("text", "")
-                                    if (name == "stderr") {
-                                        stderrBuilder.append(textOut)
-                                    } else {
-                                        stdoutBuilder.append(textOut)
+                                    synchronized(bufferLock) {
+                                        if (name == "stderr") {
+                                            stderrBuilder.append(textOut)
+                                        } else {
+                                            stdoutBuilder.append(textOut)
+                                        }
                                     }
                                 }
                                 "execute_result" -> {
                                     val data = content.optJSONObject("data")
                                     val plainText = data?.optString("text/plain", "") ?: ""
                                     if (plainText.isNotBlank()) {
-                                        stdoutBuilder.append(plainText).append("\n")
+                                        synchronized(bufferLock) {
+                                            stdoutBuilder.append(plainText).append("\n")
+                                        }
                                     }
                                 }
                                 "error" -> {
-                                    hasKernelError = true
                                     val ename = content.optString("ename", "Error")
                                     val evalue = content.optString("evalue", "")
                                     val tbArray = content.optJSONArray("traceback")
                                     val tb = if (tbArray != null) {
                                         (0 until tbArray.length()).joinToString("\n") { tbArray.getString(it) }
                                     } else "$ename: $evalue"
-                                    stderrBuilder.append(tb).append("\n")
+                                    synchronized(bufferLock) {
+                                        hasKernelError = true
+                                        stderrBuilder.append(tb).append("\n")
+                                    }
                                 }
                                 "status" -> {
                                     val state = content.optString("execution_state", "")
                                     if (state == "idle" && parentMsgId == msgId) {
                                         webSocket.close(1000, "Done")
                                         if (!deferredResult.isCompleted) {
-                                            deferredResult.complete(
+                                            val result = synchronized(bufferLock) {
                                                 CellExecutionResult(
                                                     success = !hasKernelError,
                                                     stdout = stdoutBuilder.toString().trim(),
@@ -526,7 +610,8 @@ class ColabApiEngine(
                                                     httpStatus = 200,
                                                     rawResponse = text
                                                 )
-                                            )
+                                            }
+                                            deferredResult.complete(result)
                                         }
                                     }
                                 }
@@ -536,48 +621,68 @@ class ColabApiEngine(
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    // Evict possibly stale/dead cached kernel ID so next call re-discovers
+                    kernelIdCache.remove(endpoint)
                     if (!deferredResult.isCompleted) {
-                        deferredResult.complete(
+                        val result = synchronized(bufferLock) {
+                            val existingErr = stderrBuilder.toString().trim()
+                            val combinedErr = if (existingErr.isBlank()) {
+                                "WebSocket failure: ${t.message}"
+                            } else {
+                                "WebSocket failure: ${t.message}\n$existingErr"
+                            }
                             CellExecutionResult(
                                 success = false,
                                 stdout = stdoutBuilder.toString().trim(),
-                                stderr = "WebSocket failure: ${t.message}\n" + stderrBuilder.toString().trim(),
+                                stderr = combinedErr,
                                 httpStatus = response?.code ?: 500,
                                 rawResponse = t.message ?: ""
                             )
-                        )
+                        }
+                        deferredResult.complete(result)
                     }
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     if (!deferredResult.isCompleted) {
-                        deferredResult.complete(
+                        val result = synchronized(bufferLock) {
                             CellExecutionResult(
-                                success = stderrBuilder.isEmpty(),
+                                success = !hasKernelError && stderrBuilder.isEmpty(),
                                 stdout = stdoutBuilder.toString().trim(),
                                 stderr = stderrBuilder.toString().trim(),
                                 httpStatus = 200,
                                 rawResponse = reason
                             )
-                        )
+                        }
+                        deferredResult.complete(result)
                     }
                 }
             })
 
-            val result = withTimeoutOrNull(45_000L) {
-                deferredResult.await()
-            } ?: run {
+            val result = try {
+                withTimeoutOrNull(45_000L) {
+                    deferredResult.await()
+                } ?: run {
+                    webSocket.cancel()
+                    kernelIdCache.remove(endpoint)
+                    synchronized(bufferLock) {
+                        CellExecutionResult(
+                            success = false,
+                            stdout = stdoutBuilder.toString().trim(),
+                            stderr = "Execution timed out waiting for Colab kernel",
+                            httpStatus = 504,
+                            rawResponse = ""
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
                 webSocket.cancel()
-                CellExecutionResult(
-                    success = false,
-                    stdout = stdoutBuilder.toString().trim(),
-                    stderr = "Execution timed out waiting for Colab kernel",
-                    httpStatus = 504,
-                    rawResponse = ""
-                )
+                throw e
             }
 
             Result.success(result)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("runCode network error: ${e.message}", e))
         }
@@ -635,8 +740,16 @@ class ColabApiEngine(
             val request = Request.Builder()
                 .url(statusUrl)
                 .get()
-                .header("Authorization", "Bearer $bearerToken")
-                .header("Accept", "application/json")
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    } else if (bearerToken.isNotBlank()) {
+                        header("Authorization", "Bearer $bearerToken")
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                    header("Accept", "application/json")
+                }
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -644,6 +757,8 @@ class ColabApiEngine(
                 val body = stripXssiPrefix(rawBody)
                 Result.success(parseRuntimeStatus(body, runtime.sessionId, response.isSuccessful))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("checkRuntimeStatus network error: ${e.message}", e))
         }
@@ -652,19 +767,28 @@ class ColabApiEngine(
     /**
      * Terminates an active runtime session.
      *
-     * Sends `DELETE {endpointUrl}/session/{sessionId}`.
+     * Sends `DELETE {endpointUrl}/session/{sessionId}` and evicts cached kernels.
      */
     suspend fun terminateRuntime(
         bearerToken: String,
         runtime: ColabRuntime
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        invalidateKernelCache(runtime.endpointUrl)
         try {
             val terminateUrl = "${runtime.endpointUrl.trimEnd('/')}/session/${runtime.sessionId}"
 
             val request = Request.Builder()
                 .url(terminateUrl)
                 .delete()
-                .header("Authorization", "Bearer $bearerToken")
+                .apply {
+                    if (runtime.proxyToken.isNotBlank()) {
+                        header("Authorization", "Bearer ${runtime.proxyToken}")
+                        header("X-Colab-Runtime-Proxy-Token", runtime.proxyToken)
+                    } else if (bearerToken.isNotBlank()) {
+                        header("Authorization", "Bearer $bearerToken")
+                    }
+                    header("X-Colab-Client-Agent", "colab-cli")
+                }
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -676,6 +800,8 @@ class ColabApiEngine(
                 }
                 Result.success(Unit)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("terminateRuntime network error: ${e.message}", e))
         }
@@ -718,6 +844,8 @@ class ColabApiEngine(
                 }
                 Result.success(list)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("listAssignments network error: ${e.message}", e))
         }
@@ -735,8 +863,8 @@ class ColabApiEngine(
             if (endpoint.isBlank()) {
                 return@withContext Result.failure(Exception("endpointUrl is blank"))
             }
-            val cleanPath = path.trim().trimStart('/')
-            val url = "$endpoint/api/contents/$cleanPath"
+            val encodedPath = encodeContentPath(path)
+            val url = if (encodedPath.isEmpty()) "$endpoint/api/contents" else "$endpoint/api/contents/$encodedPath"
 
             val req = Request.Builder()
                 .url(url)
@@ -758,6 +886,8 @@ class ColabApiEngine(
                 }
                 Result.success(parseContentsList(rawBody))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("listFiles network error: ${e.message}", e))
         }
@@ -807,8 +937,8 @@ class ColabApiEngine(
         try {
             val endpoint = runtime.endpointUrl.trimEnd('/')
             if (endpoint.isBlank()) return@withContext Result.failure(Exception("endpointUrl is blank"))
-            val cleanPath = path.trim().trimStart('/')
-            val url = "$endpoint/api/contents/$cleanPath"
+            val encodedPath = encodeContentPath(path)
+            val url = "$endpoint/api/contents/$encodedPath"
 
             val req = Request.Builder()
                 .url(url)
@@ -832,6 +962,8 @@ class ColabApiEngine(
                 val content = json.optString("content", "")
                 Result.success(content)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("readFile network error: ${e.message}", e))
         }
@@ -848,8 +980,8 @@ class ColabApiEngine(
         try {
             val endpoint = runtime.endpointUrl.trimEnd('/')
             if (endpoint.isBlank()) return@withContext Result.failure(Exception("endpointUrl is blank"))
-            val cleanPath = path.trim().trimStart('/')
-            val url = "$endpoint/api/contents/$cleanPath"
+            val encodedPath = encodeContentPath(path)
+            val url = "$endpoint/api/contents/$encodedPath"
 
             val payload = JSONObject().apply {
                 put("type", "file")
@@ -877,6 +1009,8 @@ class ColabApiEngine(
                 }
                 Result.success(Unit)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("writeFile network error: ${e.message}", e))
         }
@@ -893,7 +1027,8 @@ class ColabApiEngine(
             val endpoint = runtime.endpointUrl.trimEnd('/')
             if (endpoint.isBlank()) return@withContext Result.failure(Exception("endpointUrl is blank"))
             val cleanPath = path.trim().trimStart('/')
-            val url = "$endpoint/api/contents/$cleanPath"
+            val encodedPath = encodeContentPath(cleanPath)
+            val url = "$endpoint/api/contents/$encodedPath"
 
             val req = Request.Builder()
                 .url(url)
@@ -912,9 +1047,10 @@ class ColabApiEngine(
                     return@withContext Result.success(Unit)
                 }
                 if (response.code == 400) {
-                    // Could be a non-empty directory, fallback to rm -rf via kernel execution
+                    // Non-empty directory fallback via shell with POSIX single-quote escaping
                     val fullShellPath = if (cleanPath.startsWith("/")) cleanPath else "/$cleanPath"
-                    val fallbackRes = runCode(runtime.proxyToken, runtime, "!rm -rf '$fullShellPath'")
+                    val escapedPath = fullShellPath.replace("'", "'\\''")
+                    val fallbackRes = runCode(runtime.proxyToken, runtime, "!rm -rf '$escapedPath'")
                     if (fallbackRes.isSuccess) {
                         return@withContext Result.success(Unit)
                     }
@@ -922,6 +1058,8 @@ class ColabApiEngine(
                 val rawBody = response.body?.string() ?: ""
                 return@withContext Result.failure(Exception("deleteFile failed (HTTP ${response.code}): $rawBody"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("deleteFile network error: ${e.message}", e))
         }
@@ -941,7 +1079,8 @@ class ColabApiEngine(
             val endpoint = runtime.endpointUrl.trimEnd('/')
             if (endpoint.isBlank()) return@withContext Result.failure(Exception("endpointUrl is blank"))
             val cleanParent = parentPath.trim().trimStart('/')
-            val postUrl = if (cleanParent.isEmpty()) "$endpoint/api/contents" else "$endpoint/api/contents/$cleanParent"
+            val encodedParent = encodeContentPath(cleanParent)
+            val postUrl = if (encodedParent.isEmpty()) "$endpoint/api/contents" else "$endpoint/api/contents/$encodedParent"
 
             val postPayload = JSONObject().apply {
                 put("type", "directory")
@@ -971,7 +1110,8 @@ class ColabApiEngine(
             }
 
             val targetPath = if (cleanParent.isEmpty()) folderName else "$cleanParent/$folderName"
-            val patchUrl = "$endpoint/api/contents/$createdPath"
+            val encodedCreated = encodeContentPath(createdPath)
+            val patchUrl = "$endpoint/api/contents/$encodedCreated"
             val patchPayload = JSONObject().apply {
                 put("path", targetPath)
             }
@@ -996,6 +1136,8 @@ class ColabApiEngine(
                 }
                 Result.success(Unit)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("createDirectory network error: ${e.message}", e))
         }
@@ -1016,7 +1158,8 @@ class ColabApiEngine(
             val parent = cleanOld.substringBeforeLast('/', "")
             val targetPath = if (parent.isEmpty()) newName else "$parent/$newName"
 
-            val url = "$endpoint/api/contents/$cleanOld"
+            val encodedOld = encodeContentPath(cleanOld)
+            val url = "$endpoint/api/contents/$encodedOld"
             val payload = JSONObject().apply {
                 put("path", targetPath)
             }
@@ -1041,6 +1184,8 @@ class ColabApiEngine(
                 }
                 Result.success(Unit)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("renameFile network error: ${e.message}", e))
         }
@@ -1088,6 +1233,8 @@ class ColabApiEngine(
                 }
                 Result.success(parseCcuInfo(rawBody))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception("getCcuInfo network error: ${e.message}", e))
         }

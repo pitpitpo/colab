@@ -15,22 +15,28 @@ import com.pox.colab.model.RuntimeEngineMode
 import com.pox.colab.model.TunnelProvider
 import com.pox.colab.model.VMMetrics
 import com.pox.colab.model.VMStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 class VMRepository(
     private val preferences: AppPreferences,
     private val context: Context? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-    private val colabApiEngine: ColabApiEngine = ColabApiEngine()
+    private val colabApiEngine: ColabApiEngine = ColabApiEngine.INSTANCE
 ) {
     private val appContext: Context?
         get() = context ?: try { com.pox.colab.ColabApp.instance } catch (_: Exception) { null }
@@ -47,26 +53,64 @@ class VMRepository(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val _activeRuntimes = java.util.concurrent.ConcurrentHashMap<String, ColabRuntime>()
+    private val _activeRuntimes = ConcurrentHashMap<String, ColabRuntime>()
+    private val spinUpJobs = ConcurrentHashMap<String, Job>()
+    private val discoveryJobs = ConcurrentHashMap<String, Job>()
+    private val inFlightRuntimeLookups = ConcurrentHashMap<String, Deferred<ColabRuntime?>>()
+    private val lastNegativeRuntimeLookup = ConcurrentHashMap<String, Long>()
 
     fun getActiveRuntime(vmId: String): ColabRuntime? = _activeRuntimes[vmId]
 
     fun setActiveRuntime(vmId: String, runtime: ColabRuntime) {
         _activeRuntimes[vmId] = runtime
+        lastNegativeRuntimeLookup.remove(vmId)
     }
 
-    suspend fun resolveActiveRuntime(vmId: String): ColabRuntime? = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        _activeRuntimes[vmId]?.let { return@withContext it }
-        val vm = getVMById(vmId) ?: return@withContext null
-        val account = _accounts.value.find { it.id == vm.accountId } ?: _activeAccount.value ?: return@withContext null
-        val token = ColabApiEngine.refreshOAuthTokenIfNeeded(account)
-        if (token.isBlank()) return@withContext null
-        val assignments = colabApiEngine.listAssignments(token).getOrNull()
-        val runtime = assignments?.firstOrNull { it.endpointUrl.isNotBlank() }
-        if (runtime != null) {
-            _activeRuntimes[vmId] = runtime
+    suspend fun resolveActiveRuntime(vmId: String): ColabRuntime? {
+        _activeRuntimes[vmId]?.let { return it }
+        val lastMiss = lastNegativeRuntimeLookup[vmId]
+        if (lastMiss != null && System.currentTimeMillis() - lastMiss < NEGATIVE_LOOKUP_COOLDOWN_MS) {
+            return null
         }
-        runtime
+
+        val deferred = inFlightRuntimeLookups.computeIfAbsent(vmId) {
+            scope.async(Dispatchers.IO) {
+                try {
+                    _activeRuntimes[vmId]?.let { return@async it }
+                    val vm = getVMById(vmId) ?: return@async null
+                    val account = _accounts.value.find { it.id == vm.accountId }
+                        ?: _activeAccount.value
+                        ?: return@async null
+                    val prevOauth = account.oauthToken
+                    val prevToken = account.tokenOrCookie
+                    val token = ColabApiEngine.refreshOAuthTokenIfNeeded(account)
+                    if (token.isBlank()) return@async null
+                    if (account.oauthToken != prevOauth || account.tokenOrCookie != prevToken) {
+                        val persisted = _accounts.updateAndGet { list ->
+                            list.map { a -> if (a.id == account.id) account.copy() else a }
+                        }
+                        preferences.saveAccounts(persisted)
+                    }
+                    val assignments = colabApiEngine.listAssignments(token).getOrNull()
+                    val runtime = assignments?.firstOrNull { it.endpointUrl.isNotBlank() }
+                    if (runtime != null) {
+                        _activeRuntimes[vmId] = runtime
+                        lastNegativeRuntimeLookup.remove(vmId)
+                    } else {
+                        lastNegativeRuntimeLookup[vmId] = System.currentTimeMillis()
+                    }
+                    runtime
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    lastNegativeRuntimeLookup[vmId] = System.currentTimeMillis()
+                    null
+                } finally {
+                    inFlightRuntimeLookups.remove(vmId)
+                }
+            }
+        }
+        return deferred.await()
     }
 
     init {
@@ -84,8 +128,9 @@ class VMRepository(
         val validVMs = if (loadedAccounts.isEmpty()) {
             emptyList()
         } else {
+            val validAccountIds = loadedAccounts.mapTo(HashSet(loadedAccounts.size)) { it.id }
             loadedVMs.filter { vm ->
-                vm.accountId.isNotBlank() && loadedAccounts.any { it.id == vm.accountId }
+                vm.accountId.isNotBlank() && vm.accountId in validAccountIds
             }
         }
         // Sanitize any corrupted tunnelUrl or sshConfig host pointing to colab.research.google.com
@@ -128,21 +173,27 @@ class VMRepository(
             tokenOrCookie
         }
 
+        val shouldBeActive = _activeAccount.value == null || _accounts.value.isEmpty()
         val account = ColabAccount(
             email = email,
             displayName = displayName.ifEmpty { email.substringBefore("@") },
             tokenOrCookie = cleanToken,
             oauthToken = oauthToken,
             tier = tier,
-            isActive = _accounts.value.isEmpty()
+            isActive = shouldBeActive
         )
         val updated = _accounts.updateAndGet { current ->
-            current + account
+            if (shouldBeActive) {
+                current.map { it.copy(isActive = false) } + account
+            } else {
+                current + account
+            }
         }
         preferences.saveAccounts(updated)
 
-        if (_activeAccount.value == null || account.isActive) {
-            setActiveAccount(account.id)
+        if (shouldBeActive) {
+            preferences.setActiveAccountId(account.id)
+            _activeAccount.value = account
         }
 
         // Spawn a dedicated CLI instance inside the single Alpine container
@@ -158,6 +209,10 @@ class VMRepository(
             current.filter { it.id != id }
         }
         preferences.saveAccounts(updatedAccounts)
+
+        // Cancel background jobs and evict caches for VMs cascade-deleted with this account
+        val removedVmIds = _vms.value.filter { it.accountId == id }.map { it.id }
+        removedVmIds.forEach { cleanupVmResources(it) }
 
         // Cascade delete VMs associated with this removed account to prevent orphans
         val updatedVMs = _vms.updateAndGet { current ->
@@ -284,7 +339,18 @@ class VMRepository(
         updateVM(updated)
     }
 
+    private fun cleanupVmResources(vmId: String) {
+        spinUpJobs.remove(vmId)?.cancel()
+        discoveryJobs.remove(vmId)?.cancel()
+        inFlightRuntimeLookups.remove(vmId)?.cancel()
+        lastNegativeRuntimeLookup.remove(vmId)
+        _activeRuntimes.remove(vmId)?.let { runtime ->
+            colabApiEngine.invalidateKernelCache(runtime.endpointUrl)
+        }
+    }
+
     fun deleteVM(id: String) {
+        cleanupVmResources(id)
         val updated = _vms.updateAndGet { current ->
             current.filter { it.id != id }
         }
@@ -295,11 +361,19 @@ class VMRepository(
 
     fun updateMetrics(vmId: String, metrics: VMMetrics) {
         _vms.update { current ->
-            current.map {
-                if (it.id == vmId) {
-                    val derivedStatus = if (metrics.timestamp > 0L && it.status != VMStatus.ERROR) VMStatus.RUNNING else it.status
-                    it.copy(metrics = metrics, status = derivedStatus)
-                } else it
+            val index = current.indexOfFirst { it.id == vmId }
+            if (index < 0) return@update current
+            val existing = current[index]
+            val derivedStatus = if (metrics.timestamp > 0L && existing.status != VMStatus.ERROR) {
+                VMStatus.RUNNING
+            } else {
+                existing.status
+            }
+            if (existing.metrics == metrics && existing.status == derivedStatus) {
+                return@update current
+            }
+            current.toMutableList().apply {
+                this[index] = existing.copy(metrics = metrics, status = derivedStatus)
             }
         }
     }
@@ -313,18 +387,25 @@ class VMRepository(
 
     fun spinUpVM(vmId: String): Job {
         val target = getVMById(vmId) ?: return scope.launch {}
+        // Cancel any previous spin-up for this VM so rapid taps cannot race
+        spinUpJobs.remove(vmId)?.cancel()
+        lastNegativeRuntimeLookup.remove(vmId)
         updateVM(target.copy(status = VMStatus.STARTING))
 
-        return scope.launch(Dispatchers.IO) {
+        val job = scope.launch(Dispatchers.IO) {
             try {
                 val mode = preferences.getRuntimeEngineMode()
                 val account = _accounts.value.find { it.id == target.accountId } ?: _activeAccount.value
                 val token = account?.let {
+                    val prevOauth = it.oauthToken
+                    val prevToken = it.tokenOrCookie
                     val freshToken = ColabApiEngine.refreshOAuthTokenIfNeeded(it)
-                    _accounts.update { list ->
-                        list.map { a -> if (a.id == it.id) it.copy() else a }
+                    if (it.oauthToken != prevOauth || it.tokenOrCookie != prevToken) {
+                        val updatedAccounts = _accounts.updateAndGet { list ->
+                            list.map { a -> if (a.id == it.id) it.copy() else a }
+                        }
+                        preferences.saveAccounts(updatedAccounts)
                     }
-                    preferences.saveAccounts(_accounts.value)
                     freshToken
                 } ?: ""
 
@@ -346,7 +427,7 @@ class VMRepository(
                     script
                 }
 
-                // Start asynchronous rendezvous tunnel discovery so the VM announces its tunnel
+                // Start deduplicated asynchronous rendezvous tunnel discovery
                 startTunnelDiscovery(vmId)
 
                 val executeNativeApi: suspend () -> Unit = {
@@ -466,13 +547,11 @@ class VMRepository(
 
                     RuntimeEngineMode.ALPINE_PROOT -> {
                         // Option B: Embedded Alpine Container with PRoot + colab-cli
-                        val ctx = appContext
-                        val containerMgr = ctx?.let { AlpineAppContainerManager.getInstance(it) }
-                        val prootBinary = containerMgr?.findProotBinary() ?: "proot"
-                        val prootFile = java.io.File(prootBinary)
-                        val prootCanRun = prootFile.exists() && prootFile.canExecute() && containerMgr?.isRootfsInstalled() == true
-
-                        if (prootCanRun && ctx != null && containerMgr != null) {
+                        val containerMgr = appContext?.let { AlpineAppContainerManager.getInstance(it) }
+                        if (containerMgr != null &&
+                            containerMgr.isRootfsInstalled() &&
+                            java.io.File(containerMgr.findProotBinary()).let { it.exists() && it.canExecute() }
+                        ) {
                             val execResult = containerMgr.executeColabCli(
                                 target.accountId,
                                 "runtime",
@@ -492,6 +571,8 @@ class VMRepository(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val current = getVMById(vmId)
                 if (current != null && current.status != VMStatus.RUNNING && current.tunnelUrl.isNullOrBlank()) {
@@ -499,14 +580,23 @@ class VMRepository(
                 }
             }
         }
+        spinUpJobs[vmId] = job
+        job.invokeOnCompletion { spinUpJobs.remove(vmId, job) }
+        return job
     }
 
     /**
-     * Initiates asynchronous tunnel auto-discovery for the VM by monitoring the
-     * rendezvous channel announced by the Colab bootstrap script.
+     * Initiates deduplicated asynchronous tunnel auto-discovery for the VM by monitoring
+     * the rendezvous channel announced by the Colab bootstrap script.
      */
-    fun startTunnelDiscovery(vmId: String, onDiscovered: ((String) -> Unit)? = null): kotlinx.coroutines.Job {
-        return TunnelDiscoveryEngine.startAutoDiscovery(vmId, scope) { endpoint ->
+    fun startTunnelDiscovery(vmId: String, onDiscovered: ((String) -> Unit)? = null): Job {
+        if (onDiscovered == null) {
+            discoveryJobs[vmId]?.takeIf { it.isActive }?.let { return it }
+        } else {
+            discoveryJobs.remove(vmId)?.cancel()
+        }
+
+        val job = TunnelDiscoveryEngine.startAutoDiscovery(vmId, scope) { endpoint ->
             updateTunnelEndpoint(vmId, endpoint)
             val vm = getVMById(vmId)
             if (vm != null && vm.status != VMStatus.RUNNING) {
@@ -514,17 +604,30 @@ class VMRepository(
             }
             onDiscovered?.invoke(endpoint)
         }
+        discoveryJobs[vmId] = job
+        job.invokeOnCompletion { discoveryJobs.remove(vmId, job) }
+        return job
     }
 
     @Deprecated("Use spinUpVM instead", ReplaceWith("spinUpVM(vmId)"))
-    inline fun spinUpAlpineVM(vmId: String) = spinUpVM(vmId)
+    fun spinUpAlpineVM(vmId: String) = spinUpVM(vmId)
 
     fun stopVM(vmId: String) {
+        cleanupVmResources(vmId)
         val target = getVMById(vmId) ?: return
         updateVM(target.copy(status = VMStatus.STOPPED))
     }
 
     companion object {
+        private const val NEGATIVE_LOOKUP_COOLDOWN_MS = 5_000L
+
+        private val READY_REGEX = Regex("""TUNNEL READY:\s*([^\s\r\n]+)""")
+        private val BORE_REGEX = Regex("""(bore\.pub:[0-9]+)""")
+        private val PINGGY_REGEX = Regex("""((?:tcp://)?[a-zA-Z0-9.-]+\.pinggy\.(?:io|link):[0-9]+)""")
+        private val SERVEO_REGEX = Regex("""(serveo\.net:[0-9]+)""")
+        private val NGROK_REGEX = Regex("""([a-zA-Z0-9.-]+\.ngrok(?:-free)?\.(?:io|app):[0-9]+)""")
+        private val CLOUDFLARE_REGEX = Regex("""(https://[a-zA-Z0-9-]+\.trycloudflare\.com)""")
+
         fun isValidTunnelEndpoint(ep: String?): Boolean {
             if (ep.isNullOrBlank()) return false
             val clean = ep.trim().lowercase()
@@ -535,38 +638,32 @@ class VMRepository(
         fun parseDiscoveredEndpoint(text: String): String? {
             if (text.isBlank()) return null
             // 1. Explicit marker: TUNNEL READY: <endpoint>
-            val readyRegex = Regex("""TUNNEL READY:\s*([^\s\r\n]+)""")
-            readyRegex.find(text)?.let {
+            READY_REGEX.find(text)?.let {
                 val candidate = it.groupValues[1].trim()
                 if (isValidTunnelEndpoint(candidate)) return candidate
             }
             // 2. Bore TCP tunnel: bore.pub:<port>
-            val boreRegex = Regex("""(bore\.pub:[0-9]+)""")
-            boreRegex.find(text)?.let {
+            BORE_REGEX.find(text)?.let {
                 val candidate = it.groupValues[1].trim()
                 if (isValidTunnelEndpoint(candidate)) return candidate
             }
             // 3. Pinggy TCP tunnel: [subdomain.]pinggy.io:[port] or pinggy.link:[port]
-            val pinggyRegex = Regex("""((?:tcp://)?[a-zA-Z0-9.-]+\.pinggy\.(?:io|link):[0-9]+)""")
-            pinggyRegex.find(text)?.let {
+            PINGGY_REGEX.find(text)?.let {
                 val candidate = it.groupValues[1].trim()
                 if (isValidTunnelEndpoint(candidate)) return candidate
             }
             // 4. Serveo TCP tunnel: serveo.net:[port]
-            val serveoRegex = Regex("""(serveo\.net:[0-9]+)""")
-            serveoRegex.find(text)?.let {
+            SERVEO_REGEX.find(text)?.let {
                 val candidate = it.groupValues[1].trim()
                 if (isValidTunnelEndpoint(candidate)) return candidate
             }
             // 5. Ngrok TCP tunnel
-            val ngrokRegex = Regex("""([a-zA-Z0-9.-]+\.ngrok(?:-free)?\.(?:io|app):[0-9]+)""")
-            ngrokRegex.find(text)?.let {
+            NGROK_REGEX.find(text)?.let {
                 val candidate = it.groupValues[1].trim()
                 if (isValidTunnelEndpoint(candidate)) return candidate
             }
             // 6. Cloudflare tunnel: https://<domain>.trycloudflare.com
-            val cfRegex = Regex("""(https://[a-zA-Z0-9-]+\.trycloudflare\.com)""")
-            cfRegex.find(text)?.let {
+            CLOUDFLARE_REGEX.find(text)?.let {
                 val candidate = it.groupValues[1].trim()
                 if (isValidTunnelEndpoint(candidate)) return candidate
             }

@@ -4,12 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cable
@@ -41,35 +43,44 @@ import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.pox.colab.data.VMRepository
 import com.pox.colab.engine.ColabApiEngine
 import com.pox.colab.engine.TelemetryEngine
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.VMStatus
+import com.pox.colab.theme.MonoFontFamily
 import com.pox.colab.theme.statusSuccessColor
 import com.pox.colab.theme.statusWarningColor
+import com.pox.colab.theme.vmStatusColor
+import com.pox.colab.theme.vmStatusLabel
+import com.pox.colab.ui.component.expressive.ExpressiveSectionHeader
+import com.pox.colab.ui.component.expressive.ExpressiveShapes
+import com.pox.colab.ui.component.expressive.ExpressiveWavyProgressBar
 import com.pox.colab.ui.home.StatusIndicatorDot
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -84,29 +95,36 @@ fun DashboardTab(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val activeEndpoint = if (VMRepository.isValidTunnelEndpoint(vm.tunnelUrl)) {
-        vm.tunnelUrl ?: ""
-    } else if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" && VMRepository.isValidTunnelEndpoint(vm.sshConfig.host)) {
-        "${vm.sshConfig.host}:${vm.sshConfig.port}"
-    } else {
-        ""
+    val activeEndpoint = remember(vm.tunnelUrl, vm.sshConfig.host, vm.sshConfig.port) {
+        if (VMRepository.isValidTunnelEndpoint(vm.tunnelUrl)) {
+            vm.tunnelUrl ?: ""
+        } else if (vm.sshConfig.host.isNotBlank() && vm.sshConfig.host != "localhost" && VMRepository.isValidTunnelEndpoint(vm.sshConfig.host)) {
+            "${vm.sshConfig.host}:${vm.sshConfig.port}"
+        } else {
+            ""
+        }
     }
-    val (host, port) = VMRepository.parseEndpoint(activeEndpoint)
-    val hasTunnel = VMRepository.isValidTunnelEndpoint(activeEndpoint)
+    val (host, port) = remember(activeEndpoint) { VMRepository.parseEndpoint(activeEndpoint) }
+    val hasTunnel = remember(activeEndpoint) { VMRepository.isValidTunnelEndpoint(activeEndpoint) }
 
-    // Autonomous tunnel auto-discovery from Colab bootstrap broadcast
-    LaunchedEffect(vm.id, hasTunnel) {
-        if (!hasTunnel) {
+    LaunchedEffect(vm.id, hasTunnel, vm.status) {
+        if (!hasTunnel && (vm.status == VMStatus.STARTING || vm.status == VMStatus.RUNNING || vm.status == VMStatus.RECONNECTING)) {
             repository.startTunnelDiscovery(vm.id)
         }
     }
 
-    // Real-Time Telemetry & Tunnel Auto-Discovery Polling
-    LaunchedEffect(vm.id, host, port, vm.status) {
+    val shouldPollTelemetry = hasTunnel ||
+        vm.status == VMStatus.RUNNING ||
+        vm.status == VMStatus.STARTING ||
+        vm.status == VMStatus.RECONNECTING
+
+    LaunchedEffect(vm.id, host, port, shouldPollTelemetry) {
+        if (!shouldPollTelemetry) return@LaunchedEffect
+        var consecutiveMisses = 0
         while (isActive) {
+            var gotMetrics = false
             val runtime = repository.getActiveRuntime(vm.id) ?: repository.resolveActiveRuntime(vm.id)
             if (runtime != null && runtime.endpointUrl.isNotBlank()) {
-                // If tunnel is not yet set or invalid, check /tmp/colab_tunnel_endpoint.txt directly on instance
                 val curVm = repository.getVMById(vm.id)
                 if (curVm != null && !VMRepository.isValidTunnelEndpoint(curVm.tunnelUrl)) {
                     try {
@@ -115,460 +133,511 @@ fun DashboardTab(
                         if (VMRepository.isValidTunnelEndpoint(tunnelEp)) {
                             repository.updateTunnelEndpoint(vm.id, tunnelEp!!)
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (_: Exception) {}
                 }
 
                 val metricsResult = ColabApiEngine.getInstance().fetchMetrics(runtime)
                 val metrics = metricsResult.getOrNull()
                 if (metrics != null && metrics.timestamp > 0L) {
+                    gotMetrics = true
                     repository.updateMetrics(vm.id, metrics)
-                    if (VMRepository.isValidTunnelEndpoint(metrics.tunnelEndpoint) && metrics.tunnelEndpoint != vm.tunnelUrl) {
+                    val latestVm = repository.getVMById(vm.id)
+                    if (VMRepository.isValidTunnelEndpoint(metrics.tunnelEndpoint) && metrics.tunnelEndpoint != latestVm?.tunnelUrl) {
                         repository.updateTunnelEndpoint(vm.id, metrics.tunnelEndpoint!!)
                     }
                 }
             } else if (hasTunnel) {
                 val httpMetrics = TelemetryEngine.fetchHttpMetrics(host)
                 if (httpMetrics != null) {
+                    gotMetrics = true
                     repository.updateMetrics(vm.id, httpMetrics)
                 }
             }
-            delay(3000L)
+            if (gotMetrics) {
+                consecutiveMisses = 0
+                delay(3000L)
+            } else {
+                consecutiveMisses = (consecutiveMisses + 1).coerceAtMost(4)
+                delay(if (consecutiveMisses >= 2) 8000L else 3500L)
+            }
         }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Section 1: Unified Instance Status & Connection Card
-        item {
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                )
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    // Status & Power Row
-                    Row(
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 840.dp),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            StatusIndicatorDot(status = vm.status)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = vm.status.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (vm.status == VMStatus.RUNNING) statusSuccessColor() else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        Text(
-                            text = if (vm.status == VMStatus.RUNNING) "Uptime: ${formatUptime(vm.metrics.uptimeSeconds)}" else "Offline",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Tunnel Connection Details
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        shape = ExpressiveShapes.groupedItem(index = 0, count = 2, outer = 28.dp, inner = 8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer
                     ) {
                         Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (hasTunnel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                                modifier = Modifier.size(36.dp)
+                                shape = CircleShape,
+                                color = vmStatusColor(vm.status).copy(alpha = 0.16f)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = if (hasTunnel) Icons.Default.CheckCircle else Icons.Default.Sync,
-                                        contentDescription = null,
-                                        tint = if (hasTunnel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = when {
-                                        hasTunnel -> "Tunnel Connected"
-                                        vm.status == VMStatus.STARTING -> "Provisioning & Tunneling..."
-                                        vm.status == VMStatus.ERROR -> "Provisioning Error"
-                                        else -> "Auto-Configuring Tunnel"
-                                    },
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold
+                                StatusIndicatorDot(
+                                    status = vm.status,
+                                    showLabel = true,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
+                            }
+
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ) {
                                 Text(
-                                    text = when {
-                                        hasTunnel -> "$host:$port"
-                                        vm.status == VMStatus.STARTING -> "Allocating Colab runtime & establishing tunnel..."
-                                        vm.status == VMStatus.ERROR -> "Failed to establish tunnel. Tap Retry below."
-                                        else -> "Ready to launch instance."
+                                    text = if (vm.status == VMStatus.RUNNING) {
+                                        "Uptime ${formatUptime(vm.metrics.uptimeSeconds)}"
+                                    } else {
+                                        vmStatusLabel(vm.status)
                                     },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = if (hasTunnel) FontFamily.Monospace else FontFamily.Default,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFontFamily),
+                                    fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
                             }
                         }
-
-                        FilledTonalButton(
-                            onClick = onConfigureTunnel,
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (hasTunnel) Icons.Default.Edit else Icons.Default.Cable,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (hasTunnel) "Edit" else "Override", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
                     }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Non-interactive metadata badges (48dp tall, scrollable so large font
-                    // scales never clip; previously clickable chips with empty onClick).
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        MetadataBadge(
-                            icon = Icons.Default.Router,
-                            text = "Provider: ${vm.tunnelProvider.label}",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        MetadataBadge(
-                            icon = Icons.Default.Security,
-                            text = vm.sshConfig.resilientProtocol.label,
-                            tint = statusSuccessColor()
-                        )
-                    }
-                }
-            }
-        }
-
-        // Section 1.5: Dynamic Provisioning / Error Banner
-        if (vm.status == VMStatus.STARTING) {
-            item {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-                    colors = CardDefaults.outlinedCardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Sync,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Provisioning Colab Instance...",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Allocating Google Colab compute node, bootstrapping Alpine environment, and connecting tunnel gateway. Please wait...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
-                }
-            }
-        }
-
-        if (vm.status == VMStatus.ERROR) {
-            item {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
-                    colors = CardDefaults.outlinedCardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Provisioning Failed",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Unable to connect or start the Google Colab runtime. Check your account authentication or tap retry below.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Button(
-                            onClick = { repository.spinUpVM(vm.id) },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Retry Provisioning")
-                        }
-                    }
-                }
-            }
-        }
-
-        // Section 2: Live Telemetry Header
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Resource Telemetry",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
-                if (hasTunnel) {
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                val metrics = TelemetryEngine.fetchHttpMetrics(host)
-                                if (metrics != null) {
-                                    repository.updateMetrics(vm.id, metrics)
-                                    Toast.makeText(context, "Telemetry updated via HTTP agent", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "HTTP endpoint unreachable (telemetry streamed via active SSH session)", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh telemetry",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-        }
-
-        // Telemetry Row 1: CPU & RAM
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // CPU Gauge
-                TelemetryGaugeCard(
-                    title = "CPU",
-                    icon = Icons.Default.Speed,
-                    iconTint = MaterialTheme.colorScheme.primary,
-                    valueText = if (vm.status == VMStatus.RUNNING && vm.metrics.cpuUsagePercent >= 0f) "${vm.metrics.cpuUsagePercent}%" else "--",
-                    progress = if (vm.status == VMStatus.RUNNING) vm.metrics.cpuUsagePercent / 100f else 0f,
-                    progressColor = MaterialTheme.colorScheme.primary,
-                    subtitleText = if (vm.status == VMStatus.RUNNING) "Load: ${vm.metrics.loadAverage}" else "Offline",
-                    modifier = Modifier.weight(1f)
-                )
-
-                // RAM Gauge
-                TelemetryGaugeCard(
-                    title = "Memory",
-                    icon = Icons.Default.Memory,
-                    iconTint = MaterialTheme.colorScheme.secondary,
-                    valueText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedRam() else "--",
-                    progress = if (vm.status == VMStatus.RUNNING) vm.metrics.ramUsagePercent / 100f else 0f,
-                    progressColor = MaterialTheme.colorScheme.secondary,
-                    subtitleText = if (vm.status == VMStatus.RUNNING && vm.metrics.ramTotalBytes > 0L) "${vm.metrics.ramUsagePercent.toInt()}% Allocated" else "Offline",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        // Telemetry Row 2: GPU & Disk
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // GPU Gauge
-                TelemetryGaugeCard(
-                    title = "GPU",
-                    icon = Icons.Default.DeveloperBoard,
-                    iconTint = statusSuccessColor(),
-                    valueText = if (vm.status == VMStatus.RUNNING) (vm.metrics.gpuModel ?: "No GPU") else "--",
-                    progress = if (vm.status == VMStatus.RUNNING) vm.metrics.gpuUsagePercent / 100f else 0f,
-                    progressColor = statusSuccessColor(),
-                    subtitleText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedGpuVram() else "Offline",
-                    extraTag = if (vm.status == VMStatus.RUNNING && vm.metrics.gpuTemperatureCelsius > 0) "${vm.metrics.gpuTemperatureCelsius}°C" else null,
-                    modifier = Modifier.weight(1f)
-                )
-
-                // Disk Gauge
-                TelemetryGaugeCard(
-                    title = "Disk (/)",
-                    icon = Icons.Default.Storage,
-                    iconTint = MaterialTheme.colorScheme.tertiary,
-                    valueText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedDisk() else "--",
-                    progress = if (vm.status == VMStatus.RUNNING) vm.metrics.diskUsagePercent / 100f else 0f,
-                    progressColor = MaterialTheme.colorScheme.tertiary,
-                    subtitleText = if (vm.status == VMStatus.RUNNING && vm.metrics.diskTotalBytes > 0L) "${vm.metrics.diskUsagePercent.toInt()}% Used" else "Offline",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        // Section 3: Colab Runtime Setup & Script
-        item {
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                )
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Text(
-                        text = "Automated & Manual Controls",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Automated provisioning runs in the background. You can also copy the bootstrap script to run manually in any Colab notebook.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("Colab Bootstrap Script", vm.bootstrapScript)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Bootstrap script copied!", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copy Script", maxLines = 1, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
-
-                        FilledTonalButton(
-                            onClick = {
-                                if (vm.status == VMStatus.RUNNING) {
-                                    repository.stopVM(vm.id)
-                                } else {
-                                    repository.spinUpVM(vm.id)
-                                }
-                            },
-                            enabled = vm.status != VMStatus.STARTING,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (vm.status == VMStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (vm.status == VMStatus.RUNNING) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = when (vm.status) {
-                                    VMStatus.RUNNING -> "Stop Instance"
-                                    VMStatus.STARTING -> "Starting..."
-                                    else -> "Start Instance"
-                                },
-                                maxLines = 1,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Text(
-                        text = "Notebook Bootstrap Snippet (Optional Fallback):",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
 
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        shape = ExpressiveShapes.groupedItem(index = 1, count = 2, outer = 28.dp, inner = 8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer
                     ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = ExpressiveShapes.clover(),
+                                        color = if (hasTunnel) {
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.secondaryContainer
+                                        },
+                                        modifier = Modifier.size(44.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = if (hasTunnel) Icons.Default.CheckCircle else Icons.Default.Sync,
+                                                contentDescription = null,
+                                                tint = if (hasTunnel) {
+                                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                                },
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Column {
+                                        Text(
+                                            text = when {
+                                                hasTunnel -> "Tunnel Connected"
+                                                vm.status == VMStatus.STARTING -> "Provisioning Tunnel"
+                                                vm.status == VMStatus.ERROR -> "Provisioning Error"
+                                                else -> "Auto-Configuring Tunnel"
+                                            },
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = when {
+                                                hasTunnel -> "$host:$port"
+                                                vm.status == VMStatus.STARTING -> "Allocating runtime & establishing tunnel..."
+                                                vm.status == VMStatus.ERROR -> "Failed to establish tunnel. Tap retry below."
+                                                else -> "Ready to launch instance."
+                                            },
+                                            style = if (hasTunnel) {
+                                                MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily)
+                                            } else {
+                                                MaterialTheme.typography.bodySmall
+                                            },
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                FilledTonalButton(
+                                    onClick = onConfigureTunnel,
+                                    shape = CircleShape,
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (hasTunnel) Icons.Default.Edit else Icons.Default.Cable,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (hasTunnel) "Edit" else "Override",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                MetadataBadge(
+                                    icon = Icons.Default.Router,
+                                    text = "Provider: ${vm.tunnelProvider.label}",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                MetadataBadge(
+                                    icon = Icons.Default.Security,
+                                    text = vm.sshConfig.resilientProtocol.label,
+                                    tint = statusSuccessColor()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (vm.status == VMStatus.STARTING) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Provisioning Colab Instance...",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Allocating Google Colab compute node, bootstrapping environment, and connecting tunnel gateway.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            ExpressiveWavyProgressBar(
+                                progress = null,
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.2f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (vm.status == VMStatus.ERROR) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Provisioning Failed",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Unable to connect or start the Google Colab runtime. Verify account authentication or retry.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Button(
+                                onClick = { repository.spinUpVM(vm.id) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError
+                                ),
+                                shape = CircleShape
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Retry Provisioning", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                ExpressiveSectionHeader(
+                    title = "Resource Telemetry",
+                    subtitle = "Live CPU, memory, GPU & storage gauges",
+                    trailing = if (hasTunnel) {
+                        {
+                            FilledTonalIconButton(
+                                onClick = {
+                                    scope.launch {
+                                        val metrics = TelemetryEngine.fetchHttpMetrics(host)
+                                        if (metrics != null) {
+                                            repository.updateMetrics(vm.id, metrics)
+                                            Toast.makeText(context, "Telemetry updated via HTTP agent", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "HTTP endpoint unreachable (telemetry streamed via SSH)", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                shape = CircleShape,
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh telemetry",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    } else null
+                )
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TelemetryGaugeCard(
+                        title = "CPU",
+                        icon = Icons.Default.Speed,
+                        badgeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        badgeIconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        valueText = if (vm.status == VMStatus.RUNNING && vm.metrics.cpuUsagePercent >= 0f) {
+                            "${vm.metrics.cpuUsagePercent.toInt()}%"
+                        } else {
+                            "--"
+                        },
+                        progress = if (vm.status == VMStatus.RUNNING) vm.metrics.cpuUsagePercent / 100f else 0f,
+                        progressColor = MaterialTheme.colorScheme.primary,
+                        subtitleText = if (vm.status == VMStatus.RUNNING) "Load: ${vm.metrics.loadAverage}" else "Offline",
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    TelemetryGaugeCard(
+                        title = "Memory",
+                        icon = Icons.Default.Memory,
+                        badgeContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        badgeIconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        valueText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedRam() else "--",
+                        progress = if (vm.status == VMStatus.RUNNING) vm.metrics.ramUsagePercent / 100f else 0f,
+                        progressColor = MaterialTheme.colorScheme.secondary,
+                        subtitleText = if (vm.status == VMStatus.RUNNING && vm.metrics.ramTotalBytes > 0L) {
+                            "${vm.metrics.ramUsagePercent.toInt()}% Allocated"
+                        } else {
+                            "Offline"
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TelemetryGaugeCard(
+                        title = "GPU",
+                        icon = Icons.Default.DeveloperBoard,
+                        badgeContainerColor = statusSuccessColor().copy(alpha = 0.18f),
+                        badgeIconTint = statusSuccessColor(),
+                        valueText = if (vm.status == VMStatus.RUNNING) (vm.metrics.gpuModel ?: "No GPU") else "--",
+                        progress = if (vm.status == VMStatus.RUNNING) vm.metrics.gpuUsagePercent / 100f else 0f,
+                        progressColor = statusSuccessColor(),
+                        subtitleText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedGpuVram() else "Offline",
+                        extraTag = if (vm.status == VMStatus.RUNNING && vm.metrics.gpuTemperatureCelsius > 0) {
+                            "${vm.metrics.gpuTemperatureCelsius}°C"
+                        } else null,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    TelemetryGaugeCard(
+                        title = "Disk (/)",
+                        icon = Icons.Default.Storage,
+                        badgeContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        badgeIconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        valueText = if (vm.status == VMStatus.RUNNING) vm.metrics.formattedDisk() else "--",
+                        progress = if (vm.status == VMStatus.RUNNING) vm.metrics.diskUsagePercent / 100f else 0f,
+                        progressColor = MaterialTheme.colorScheme.tertiary,
+                        subtitleText = if (vm.status == VMStatus.RUNNING && vm.metrics.diskTotalBytes > 0L) {
+                            "${vm.metrics.diskUsagePercent.toInt()}% Used"
+                        } else {
+                            "Offline"
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(22.dp)) {
                         Text(
-                            text = vm.bootstrapScript.take(280) + "\n...",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(14.dp),
+                            text = "Runtime Controls & Bootstrap",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Automated provisioning runs in the background. You can also copy the bootstrap script to run manually in any Colab notebook.",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Colab Bootstrap Script", vm.bootstrapScript)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Bootstrap script copied!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = ExpressiveShapes.connectedStart,
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Copy Script",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                            }
+
+                            FilledTonalButton(
+                                onClick = {
+                                    if (vm.status == VMStatus.RUNNING) {
+                                        repository.stopVM(vm.id)
+                                    } else {
+                                        repository.spinUpVM(vm.id)
+                                    }
+                                },
+                                enabled = vm.status != VMStatus.STARTING,
+                                modifier = Modifier.weight(1f),
+                                shape = ExpressiveShapes.connectedEnd,
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (vm.status == VMStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (vm.status == VMStatus.RUNNING) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = when (vm.status) {
+                                        VMStatus.RUNNING -> "Stop"
+                                        VMStatus.STARTING -> "Starting..."
+                                        else -> "Start"
+                                    },
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Text(
+                            text = "Notebook Bootstrap Snippet",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ) {
+                            Text(
+                                text = vm.bootstrapScript.take(280) + "\n...",
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
+                                modifier = Modifier.padding(16.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -579,24 +648,30 @@ fun DashboardTab(
 @Composable
 fun TelemetryGaugeCard(
     title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    iconTint: androidx.compose.ui.graphics.Color,
+    icon: ImageVector,
+    badgeContainerColor: Color,
+    badgeIconTint: Color,
     valueText: String,
     progress: Float,
-    progressColor: androidx.compose.ui.graphics.Color,
+    progressColor: Color,
     subtitleText: String,
     modifier: Modifier = Modifier,
     extraTag: String? = null
 ) {
-    OutlinedCard(
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = spring(),
+        label = "telemetryProgress"
+    )
+
+    Card(
         modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.outlinedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        shape = RoundedCornerShape(26.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
         )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -604,59 +679,79 @@ fun TelemetryGaugeCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = iconTint.copy(alpha = 0.12f),
-                        modifier = Modifier.size(28.dp)
+                        shape = ExpressiveShapes.clover(),
+                        color = badgeContainerColor,
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = icon,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = iconTint
+                                modifier = Modifier.size(18.dp),
+                                tint = badgeIconTint
                             )
                         }
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 extraTag?.let { tag ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Thermostat,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = statusWarningColor()
-                        )
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text(tag, style = MaterialTheme.typography.labelSmall, color = statusWarningColor(), fontWeight = FontWeight.Medium)
+                    Surface(
+                        shape = CircleShape,
+                        color = statusWarningColor().copy(alpha = 0.16f)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Thermostat,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = statusWarningColor()
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = tag,
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = MonoFontFamily),
+                                color = statusWarningColor(),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Text(
                 text = valueText,
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineSmall.copy(fontFamily = MonoFontFamily),
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             LinearProgressIndicator(
-                progress = { progress.coerceIn(0f, 1f) },
+                progress = { animatedProgress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp)),
+                    .height(10.dp)
+                    .clip(CircleShape),
                 color = progressColor,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                strokeCap = StrokeCap.Round
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Text(
                 text = subtitleText,
@@ -677,27 +772,32 @@ private fun formatUptime(seconds: Long): String {
 
 @Composable
 private fun MetadataBadge(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     text: String,
-    tint: androidx.compose.ui.graphics.Color
+    tint: Color
 ) {
     Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(15.dp),
                 tint = tint
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1
+            )
         }
     }
 }

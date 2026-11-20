@@ -1,6 +1,7 @@
 package com.pox.colab.engine
 
 import com.pox.colab.data.VMRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -10,7 +11,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
 
 /**
  * Autonomous rendezvous engine that discovers tunnel endpoints announced by the
@@ -20,11 +20,8 @@ import java.util.concurrent.TimeUnit
  */
 object TunnelDiscoveryEngine {
 
-    var httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
+    @Volatile
+    var httpClient: OkHttpClient = HttpClientProvider.fastClient
 
     fun getDiscoveryTopic(vmId: String): String {
         return "colab_vm_${vmId.replace("-", "").lowercase()}"
@@ -51,7 +48,6 @@ object TunnelDiscoveryEngine {
                 if (response.isSuccessful) {
                     val body = response.body?.string()?.trim() ?: ""
                     if (body.isNotBlank() && (body.contains(":") || body.contains("."))) {
-                        // Take the most recent published endpoint line
                         val candidate = body.lines().lastOrNull { line ->
                             val trimmed = line.trim()
                             trimmed.isNotBlank() && VMRepository.isValidTunnelEndpoint(trimmed)
@@ -62,19 +58,21 @@ object TunnelDiscoveryEngine {
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {}
         return@withContext null
     }
 
     /**
      * Starts background polling for the VM's tunnel endpoint, invoking [onEndpointDiscovered]
-     * immediately once detected.
+     * immediately once detected. Polls rapidly right after VM boot, then backs off gently.
      */
     fun startAutoDiscovery(
         vmId: String,
         scope: CoroutineScope,
-        maxAttempts: Int = 120, // 4 minutes at 2s interval
-        intervalMs: Long = 2000L,
+        maxAttempts: Int = 120,
+        intervalMs: Long = 1500L,
         onEndpointDiscovered: (String) -> Unit
     ): Job {
         return scope.launch(Dispatchers.IO) {
@@ -87,7 +85,8 @@ object TunnelDiscoveryEngine {
                     }
                     break
                 }
-                delay(intervalMs)
+                val nextDelay = if (attempt <= 20) intervalMs else (intervalMs * 2).coerceAtMost(4000L)
+                delay(nextDelay)
             }
         }
     }

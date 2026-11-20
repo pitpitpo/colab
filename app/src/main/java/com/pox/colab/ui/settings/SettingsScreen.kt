@@ -1,12 +1,12 @@
 package com.pox.colab.ui.settings
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -17,105 +17,103 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BrightnessLow
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ColorLens
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.DialogProperties
-import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.pox.colab.BuildConfig
 import com.pox.colab.data.AppPreferences
 import com.pox.colab.data.VMRepository
+import com.pox.colab.engine.HttpClientProvider
 import com.pox.colab.model.RuntimeEngineMode
-import com.pox.colab.engine.AlpineAppContainerManager
-import com.pox.colab.engine.ColabAuthEngine
-import com.pox.colab.engine.ColabAuthSession
+import com.pox.colab.theme.MonoFontFamily
 import com.pox.colab.theme.resolveConsoleBackground
 import com.pox.colab.theme.statusSuccessColor
+import com.pox.colab.ui.component.expressive.ExpressiveMorphingChip
+import com.pox.colab.ui.component.expressive.ExpressiveSectionHeader
+import com.pox.colab.ui.component.expressive.ExpressiveShapes
+import com.pox.colab.ui.component.expressive.ExpressiveWavyProgressBar
 import com.pox.colab.util.SemverUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
+
+private val SETTINGS_PALETTE_OPTIONS = listOf(
+    Triple("colab_amber", "Colab Amber", Color(0xFFE8710A)),
+    Triple("matrix_green", "Matrix Green", Color(0xFF3FB950)),
+    Triple("cyber_cyan", "Cyber Cyan", Color(0xFF56D4DD)),
+    Triple("neon_violet", "Neon Violet", Color(0xFFBB86FC)),
+    Triple("monochrome", "Monochrome", Color(0xFFEDEDED))
+)
+
+private val SETTINGS_CONSOLE_BG_OPTIONS = listOf(
+    Pair("amoled_black", "AMOLED Black"),
+    Pair("deep_charcoal", "Deep Charcoal"),
+    Pair("navy_terminal", "Navy Terminal"),
+    Pair("matrix_dark", "Matrix Dark"),
+    Pair("monokai_dark", "Monokai Dark")
+)
 
 data class ReleaseAsset(
     val name: String,
@@ -137,38 +135,38 @@ data class GitHubReleaseInfo(
 fun SettingsScreen(
     repository: VMRepository,
     preferences: AppPreferences,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val accounts by repository.accounts.collectAsState()
-    val activeAccount by repository.activeAccount.collectAsState()
-    val vms by repository.vms.collectAsState()
+    val accounts by repository.accounts.collectAsStateWithLifecycle()
+    val activeAccount by repository.activeAccount.collectAsStateWithLifecycle()
+    val vms by repository.vms.collectAsStateWithLifecycle()
 
     var showSignInDialog by remember { mutableStateOf(false) }
 
-    // Runtime Provisioning Engine state
     var runtimeEngineMode by remember { mutableStateOf(preferences.getRuntimeEngineMode()) }
 
-    // Theme state
     var dynamicColorEnabled by remember { mutableStateOf(preferences.isDynamicColorEnabled()) }
     var darkModeEnabled by remember { mutableStateOf(preferences.isDarkMode()) }
     var pureBlackEnabled by remember { mutableStateOf(preferences.isPureBlack()) }
     var selectedPalette by remember { mutableStateOf(preferences.getSelectedPalette()) }
     var globalConsoleBg by remember { mutableStateOf(preferences.getConsoleBackground()) }
 
-    // App Update state
     var isCheckingUpdates by remember { mutableStateOf(false) }
     var latestRelease by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
     var updateCheckError by remember { mutableStateOf<String?>(null) }
 
     val currentAppVersion = "v${BuildConfig.VERSION_NAME}"
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            LargeTopAppBar(
+                scrollBehavior = scrollBehavior,
                 title = {
                     Text(
                         text = "Settings",
@@ -177,395 +175,214 @@ fun SettingsScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                 },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                colors = TopAppBarDefaults.largeTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
                 )
             )
         }
     ) { innerPadding ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .navigationBarsPadding(),
-            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+                .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter
         ) {
-            // =========================================================================
-            // HUB 1: Accounts Hub
-            // =========================================================================
-            item {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Accounts Hub",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Colab OAuth accounts, compute quotas & tiers",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Button(
-                            onClick = { showSignInDialog = true },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Add Account", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (accounts.isEmpty()) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("No Connected Colab Accounts", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text("Tap 'Add Account' to connect your Google Colab account.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 840.dp),
+                contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 128.dp),
+                verticalArrangement = Arrangement.spacedBy(26.dp)
+            ) {
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ExpressiveSectionHeader(
+                            title = "Accounts Hub",
+                            subtitle = "Colab OAuth accounts, quotas & tiers",
+                            trailing = {
+                                Button(
+                                    onClick = { showSignInDialog = true },
+                                    shape = CircleShape,
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                                    modifier = Modifier.testTag("settings_add_account_button")
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Add Account", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                }
                             }
-                        }
-                    } else {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        ) {
-                            Column {
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (accounts.isEmpty()) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(28.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainer
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(28.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Surface(
+                                        modifier = Modifier.size(64.dp),
+                                        shape = ExpressiveShapes.scallop(lobes = 8, depth = 0.09f),
+                                        color = MaterialTheme.colorScheme.primaryContainer
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.AccountCircle,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(32.dp),
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Text(
+                                        text = "No Connected Colab Accounts",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Tap Add Account to connect your Google Colab account.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 accounts.forEachIndexed { index, acc ->
                                     val isActive = acc.id == activeAccount?.id
+                                    val cardColor by animateColorAsState(
+                                        targetValue = if (isActive) {
+                                            MaterialTheme.colorScheme.surfaceContainerHigh
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceContainer
+                                        },
+                                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                        label = "accountCardBg"
+                                    )
 
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(14.dp)
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = ExpressiveShapes.groupedItem(index, accounts.size),
+                                        color = cardColor
                                     ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 14.dp)
                                         ) {
-                                            RadioButton(
-                                                selected = isActive,
-                                                onClick = { repository.setActiveAccount(acc.id) }
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(acc.displayName, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                    if (isActive) {
-                                                        Spacer(modifier = Modifier.width(8.dp))
-                                                        Surface(
-                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                                            shape = RoundedCornerShape(6.dp)
-                                                        ) {
-                                                            Text("ACTIVE", fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(
+                                                    selected = isActive,
+                                                    onClick = { repository.setActiveAccount(acc.id) }
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = acc.displayName,
+                                                            style = MaterialTheme.typography.titleMedium,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        if (isActive) {
+                                                            Surface(
+                                                                color = MaterialTheme.colorScheme.primaryContainer,
+                                                                shape = CircleShape
+                                                            ) {
+                                                                Text(
+                                                                    text = "ACTIVE",
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                                )
+                                                            }
                                                         }
                                                     }
+                                                    Text(
+                                                        text = acc.email,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
                                                 }
-                                                Text(acc.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
 
-                                            // Enable/Disable Switch
-                                            Switch(
-                                                checked = acc.isEnabled,
-                                                onCheckedChange = { isChecked ->
-                                                    repository.toggleAccountEnabled(acc.id, isChecked, context)
-                                                    Toast.makeText(context, if (isChecked) "Account enabled" else "Account paused", Toast.LENGTH_SHORT).show()
-                                                }
-                                            )
-
-                                            Spacer(modifier = Modifier.width(4.dp))
-
-                                            IconButton(
-                                                onClick = {
-                                                    repository.removeAccount(context, acc.id)
-                                                    Toast.makeText(context, "Account and Alpine CLI instance removed", Toast.LENGTH_SHORT).show()
-                                                }
-                                            ) {
-                                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.height(8.dp))
-
-                                        // Tier selector: Pro vs Free
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(start = 48.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text("Tier:", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            FilterChip(
-                                                selected = acc.tier.equals("Pro", ignoreCase = true),
-                                                onClick = { repository.updateAccountTier(acc.id, "Pro", context) },
-                                                label = { Text("Pro", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                                                colors = FilterChipDefaults.filterChipColors(
-                                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                Switch(
+                                                    checked = acc.isEnabled,
+                                                    onCheckedChange = { isChecked ->
+                                                        repository.toggleAccountEnabled(acc.id, isChecked, context)
+                                                        Toast.makeText(
+                                                            context,
+                                                            if (isChecked) "Account enabled" else "Account paused",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    }
                                                 )
-                                            )
-                                            FilterChip(
-                                                selected = !acc.tier.equals("Pro", ignoreCase = true),
-                                                onClick = { repository.updateAccountTier(acc.id, "Free", context) },
-                                                label = { Text("Free", fontSize = 11.sp) }
-                                            )
-                                        }
-                                    }
 
-                                    if (index < accounts.lastIndex) {
-                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // =========================================================================
-            // HUB: Runtime Provisioning Engine
-            // =========================================================================
-            item {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "Runtime Provisioning Engine",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Select how Google Colab runtimes are allocated and provisioned",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            // Option A: Native Colab API (Zero Bloat)
-                            val isNative = runtimeEngineMode == RuntimeEngineMode.NATIVE_API
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isNative) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceContainerHigh,
-                                border = BorderStroke(
-                                    if (isNative) 2.dp else 1.dp,
-                                    if (isNative) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .selectable(
-                                        selected = isNative,
-                                        role = Role.RadioButton
-                                    ) {
-                                        runtimeEngineMode = RuntimeEngineMode.NATIVE_API
-                                        preferences.setRuntimeEngineMode(RuntimeEngineMode.NATIVE_API)
-                                        Toast.makeText(context, "Runtime Engine: Direct Native API (Zero Bloat)", Toast.LENGTH_SHORT).show()
-                                    }
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        RadioButton(
-                                            selected = isNative,
-                                            onClick = {
-                                                runtimeEngineMode = RuntimeEngineMode.NATIVE_API
-                                                preferences.setRuntimeEngineMode(RuntimeEngineMode.NATIVE_API)
-                                                Toast.makeText(context, "Runtime Engine: Direct Native API (Zero Bloat)", Toast.LENGTH_SHORT).show()
+                                                IconButton(
+                                                    onClick = {
+                                                        repository.removeAccount(context, acc.id)
+                                                        Toast.makeText(context, "Account removed", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = "Delete account",
+                                                        tint = MaterialTheme.colorScheme.error,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
                                             }
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
+
+                                            Spacer(modifier = Modifier.height(10.dp))
+
                                             Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(start = 48.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
                                                 Text(
-                                                    text = "Option A: Native Colab API",
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = MaterialTheme.typography.titleSmall
+                                                    text = "Tier",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
-                                                Surface(
-                                                    color = if (isNative) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
-                                                    shape = RoundedCornerShape(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = if (isNative) "ACTIVE" else "ZERO BLOAT",
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        color = if (isNative) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                            }
-                                            Text(
-                                                text = "Direct REST client communicating directly with Google Colab backend runtime endpoints.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(10.dp))
-
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = 48.dp)
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text("Direct REST API", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                        }
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text("Zero Local Storage", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                        }
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text("Instant Boot", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Option B: Embedded Alpine Container (PRoot + colab-cli)
-                            val isAlpine = runtimeEngineMode == RuntimeEngineMode.ALPINE_PROOT
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isAlpine) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceContainerHigh,
-                                border = BorderStroke(
-                                    if (isAlpine) 2.dp else 1.dp,
-                                    if (isAlpine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .selectable(
-                                        selected = isAlpine,
-                                        role = Role.RadioButton
-                                    ) {
-                                        runtimeEngineMode = RuntimeEngineMode.ALPINE_PROOT
-                                        preferences.setRuntimeEngineMode(RuntimeEngineMode.ALPINE_PROOT)
-                                        Toast.makeText(context, "Runtime Engine: Embedded Alpine Container (PRoot + colab-cli)", Toast.LENGTH_SHORT).show()
-                                    }
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        RadioButton(
-                                            selected = isAlpine,
-                                            onClick = {
-                                                runtimeEngineMode = RuntimeEngineMode.ALPINE_PROOT
-                                                preferences.setRuntimeEngineMode(RuntimeEngineMode.ALPINE_PROOT)
-                                                Toast.makeText(context, "Runtime Engine: Embedded Alpine Container (PRoot + colab-cli)", Toast.LENGTH_SHORT).show()
-                                            }
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "Option B: Embedded Alpine Container",
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = MaterialTheme.typography.titleSmall
+                                                val isPro = acc.tier.equals("Pro", ignoreCase = true)
+                                                ExpressiveMorphingChip(
+                                                    selected = isPro,
+                                                    label = "Pro",
+                                                    onClick = { repository.updateAccountTier(acc.id, "Pro", context) },
+                                                    leading = if (isPro) {
+                                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                    } else null
                                                 )
-                                                Surface(
-                                                    color = if (isAlpine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiaryContainer,
-                                                    shape = RoundedCornerShape(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = if (isAlpine) "ACTIVE" else "PROOT SANDBOX",
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        color = if (isAlpine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiaryContainer,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
+                                                ExpressiveMorphingChip(
+                                                    selected = !isPro,
+                                                    label = "Free",
+                                                    onClick = { repository.updateAccountTier(acc.id, "Free", context) },
+                                                    leading = if (!isPro) {
+                                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                    } else null
+                                                )
                                             }
-                                            Text(
-                                                text = "Isolated PRoot Alpine userland hosting local colab-cli instances and credentials per account.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(10.dp))
-
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = 48.dp)
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text("PRoot Emulation", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                        }
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text("colab-cli multi-mgr", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                        }
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text("Isolated Instance Dirs", fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                         }
                                     }
                                 }
@@ -573,220 +390,273 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
 
-            // =========================================================================
-            // HUB 2: Theme Hub
-            // =========================================================================
-            item {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text("Theme Hub", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Palettes, AMOLED Pure Black, and per-VM terminal styling", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(12.dp))
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ExpressiveSectionHeader(
+                            title = "Runtime Provisioning Engine",
+                            subtitle = "Select how Google Colab runtimes are allocated"
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Color Palette", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            val palettes = listOf(
-                                Triple("colab_amber", "Colab Amber", Color(0xFFE8710A)),
-                                Triple("matrix_green", "Matrix Green", Color(0xFF3FB950)),
-                                Triple("cyber_cyan", "Cyber Cyan", Color(0xFF56D4DD)),
-                                Triple("neon_violet", "Neon Violet", Color(0xFFBB86FC)),
-                                Triple("monochrome", "Monochrome", Color(0xFFEDEDED))
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            RuntimeOptionCard(
+                                title = "Native Colab API",
+                                badge = if (runtimeEngineMode == RuntimeEngineMode.NATIVE_API) "ACTIVE" else "ZERO BLOAT",
+                                description = "Direct REST client communicating with Google Colab backend runtime endpoints.",
+                                tags = listOf("Direct REST API", "Zero Local Storage", "Instant Boot"),
+                                selected = runtimeEngineMode == RuntimeEngineMode.NATIVE_API,
+                                shape = ExpressiveShapes.groupedItem(index = 0, count = 2),
+                                onSelect = {
+                                    runtimeEngineMode = RuntimeEngineMode.NATIVE_API
+                                    preferences.setRuntimeEngineMode(RuntimeEngineMode.NATIVE_API)
+                                    Toast.makeText(context, "Runtime Engine: Native Colab API", Toast.LENGTH_SHORT).show()
+                                }
                             )
 
-                            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                palettes.forEach { (key, label, color) ->
-                                    val isSelected = selectedPalette == key
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                            RuntimeOptionCard(
+                                title = "Embedded Alpine Container",
+                                badge = if (runtimeEngineMode == RuntimeEngineMode.ALPINE_PROOT) "ACTIVE" else "PROOT",
+                                description = "Isolated PRoot Alpine userland hosting local colab-cli instances per account.",
+                                tags = listOf("PRoot Emulation", "colab-cli", "Isolated Dirs"),
+                                selected = runtimeEngineMode == RuntimeEngineMode.ALPINE_PROOT,
+                                shape = ExpressiveShapes.groupedItem(index = 1, count = 2),
+                                onSelect = {
+                                    runtimeEngineMode = RuntimeEngineMode.ALPINE_PROOT
+                                    preferences.setRuntimeEngineMode(RuntimeEngineMode.ALPINE_PROOT)
+                                    Toast.makeText(context, "Runtime Engine: Embedded Alpine Container", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ExpressiveSectionHeader(
+                            title = "Theme Hub",
+                            subtitle = "Palettes, AMOLED Pure Black & per-VM terminal styling"
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val themeGroupCount = 5
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = ExpressiveShapes.groupedItem(index = 0, count = themeGroupCount),
+                                color = MaterialTheme.colorScheme.surfaceContainer
+                            ) {
+                                Column(modifier = Modifier.padding(18.dp)) {
+                                    Text(
+                                        text = "Color Palette",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Row(
                                         modifier = Modifier
-                                            .defaultMinSize(minHeight = 48.dp)
-                                            .selectable(
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        SETTINGS_PALETTE_OPTIONS.forEach { (key, label, color) ->
+                                            val isSelected = selectedPalette == key
+                                            ExpressiveMorphingChip(
                                                 selected = isSelected,
                                                 enabled = !dynamicColorEnabled,
-                                                role = Role.RadioButton
-                                            ) {
-                                                selectedPalette = key
-                                                preferences.setSelectedPalette(key)
-                                            }
-                                    ) {
-                                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Box(modifier = Modifier.size(12.dp).background(color, CircleShape))
-                                            Text(label, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                                        }
-                                    }
-                                }
-                            }
-                            if (dynamicColorEnabled) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "Palette selection is overridden by Material You while Dynamic Color is enabled.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // AMOLED Pure Black
-                            ListItem(
-                                headlineContent = { Text("AMOLED Pure Black (#000000)", fontWeight = FontWeight.SemiBold) },
-                                supportingContent = {
-                                    Text(
-                                        if (darkModeEnabled) {
-                                            "High contrast pure pitch black background for OLED screens"
-                                        } else {
-                                            "Enable Dark Theme to activate AMOLED Pure Black"
-                                        }
-                                    )
-                                },
-                                leadingContent = { Icon(Icons.Default.BrightnessLow, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                trailingContent = {
-                                    Switch(
-                                        checked = pureBlackEnabled,
-                                        enabled = darkModeEnabled,
-                                        onCheckedChange = {
-                                            pureBlackEnabled = it
-                                            preferences.setPureBlack(it)
-                                        }
-                                    )
-                                },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                            )
-
-                            // Dark Mode
-                            ListItem(
-                                headlineContent = { Text("Dark Theme", fontWeight = FontWeight.SemiBold) },
-                                supportingContent = { Text("Toggle dark and light appearance") },
-                                leadingContent = { Icon(Icons.Default.DarkMode, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                trailingContent = {
-                                    Switch(
-                                        checked = darkModeEnabled,
-                                        onCheckedChange = {
-                                            darkModeEnabled = it
-                                            preferences.setDarkMode(it)
-                                        }
-                                    )
-                                },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                            )
-
-                            // Dynamic Color
-                            ListItem(
-                                headlineContent = { Text("Dynamic Color (Material You)", fontWeight = FontWeight.SemiBold) },
-                                supportingContent = { Text("Extract wallpaper palette on Android 12+") },
-                                leadingContent = { Icon(Icons.Default.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                trailingContent = {
-                                    Switch(
-                                        checked = dynamicColorEnabled,
-                                        onCheckedChange = {
-                                            dynamicColorEnabled = it
-                                            preferences.setDynamicColorEnabled(it)
-                                        }
-                                    )
-                                },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Terminal Background selection
-                            Text("Terminal Console Background", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            val consoleBgs = listOf(
-                                Pair("amoled_black", "AMOLED Black"),
-                                Pair("deep_charcoal", "Deep Charcoal"),
-                                Pair("navy_terminal", "Navy Terminal"),
-                                Pair("matrix_dark", "Matrix Dark"),
-                                Pair("monokai_dark", "Monokai Dark")
-                            )
-
-                            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                consoleBgs.forEach { (bgKey, bgLabel) ->
-                                    val isCur = globalConsoleBg == bgKey
-                                    val clr = resolveConsoleBackground(bgKey)
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = if (isCur) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        border = if (isCur) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
-                                        modifier = Modifier
-                                            .defaultMinSize(minHeight = 48.dp)
-                                            .selectable(selected = isCur, role = Role.RadioButton) {
-                                                globalConsoleBg = bgKey
-                                                preferences.setConsoleBackground(bgKey)
-                                            }
-                                    ) {
-                                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(clr).border(1.dp, Color.Gray, CircleShape))
-                                            Text(bgLabel, fontSize = 12.sp, fontWeight = if (isCur) FontWeight.Bold else FontWeight.Normal)
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Per-VM Background Customization
-                            if (vms.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text("Per-VM Terminal Styling", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                vms.forEach { vm ->
-                                    var vmBg by remember(vm.id) { mutableStateOf(preferences.getConsoleBgForVM(vm.id)) }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(vm.name, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            consoleBgs.forEach { (bgKey, bgLabel) ->
-                                                val isCur = vmBg == bgKey
-                                                val clr = resolveConsoleBackground(bgKey)
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(48.dp)
-                                                        .clip(CircleShape)
-                                                        .semantics {
-                                                            contentDescription = "$bgLabel background for ${vm.name}"
-                                                        }
-                                                        .selectable(
-                                                            selected = isCur,
-                                                            role = Role.RadioButton
-                                                        ) {
-                                                            vmBg = bgKey
-                                                            preferences.setConsoleBgForVM(vm.id, bgKey)
-                                                        },
-                                                    contentAlignment = Alignment.Center
-                                                ) {
+                                                label = label,
+                                                onClick = {
+                                                    selectedPalette = key
+                                                    preferences.setSelectedPalette(key)
+                                                },
+                                                leading = {
                                                     Box(
                                                         modifier = Modifier
-                                                            .size(24.dp)
+                                                            .size(14.dp)
+                                                            .clip(CircleShape)
+                                                            .background(color)
+                                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                                                    )
+                                                },
+                                                trailing = if (isSelected) {
+                                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                } else null
+                                            )
+                                        }
+                                    }
+
+                                    if (dynamicColorEnabled) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "Palette selection is overridden by Material You while Dynamic Color is enabled.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            ThemeToggleItem(
+                                icon = Icons.Default.BrightnessLow,
+                                iconContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                title = "AMOLED Pure Black",
+                                subtitle = if (darkModeEnabled) {
+                                    "Pure #000000 canvas for OLED displays"
+                                } else {
+                                    "Enable Dark Theme to activate AMOLED Black"
+                                },
+                                checked = pureBlackEnabled,
+                                enabled = darkModeEnabled,
+                                shape = ExpressiveShapes.groupedItem(index = 1, count = themeGroupCount),
+                                onCheckedChange = {
+                                    pureBlackEnabled = it
+                                    preferences.setPureBlack(it)
+                                }
+                            )
+
+                            ThemeToggleItem(
+                                icon = Icons.Default.DarkMode,
+                                iconContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                title = "Dark Theme",
+                                subtitle = "Toggle dark and light appearance",
+                                checked = darkModeEnabled,
+                                enabled = true,
+                                shape = ExpressiveShapes.groupedItem(index = 2, count = themeGroupCount),
+                                onCheckedChange = {
+                                    darkModeEnabled = it
+                                    preferences.setDarkMode(it)
+                                }
+                            )
+
+                            ThemeToggleItem(
+                                icon = Icons.Default.ColorLens,
+                                iconContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                title = "Dynamic Color (Material You)",
+                                subtitle = "Extract wallpaper palette on Android 12+",
+                                checked = dynamicColorEnabled,
+                                enabled = true,
+                                shape = ExpressiveShapes.groupedItem(index = 3, count = themeGroupCount),
+                                onCheckedChange = {
+                                    dynamicColorEnabled = it
+                                    preferences.setDynamicColorEnabled(it)
+                                }
+                            )
+
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = ExpressiveShapes.groupedItem(index = 4, count = themeGroupCount),
+                                color = MaterialTheme.colorScheme.surfaceContainer
+                            ) {
+                                Column(modifier = Modifier.padding(18.dp)) {
+                                    Text(
+                                        text = "Terminal Console Background",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        SETTINGS_CONSOLE_BG_OPTIONS.forEach { (bgKey, bgLabel) ->
+                                            val isCur = globalConsoleBg == bgKey
+                                            val clr = resolveConsoleBackground(bgKey)
+                                            ExpressiveMorphingChip(
+                                                selected = isCur,
+                                                label = bgLabel,
+                                                onClick = {
+                                                    globalConsoleBg = bgKey
+                                                    preferences.setConsoleBackground(bgKey)
+                                                },
+                                                leading = {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(14.dp)
                                                             .clip(CircleShape)
                                                             .background(clr)
-                                                            .border(if (isCur) 2.dp else 1.dp, if (isCur) MaterialTheme.colorScheme.primary else Color.DarkGray, CircleShape)
+                                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
                                                     )
-                                                    if (isCur) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Check,
-                                                            contentDescription = null,
-                                                            tint = if (clr.luminance() > 0.4f) Color.Black else Color.White,
-                                                            modifier = Modifier.size(14.dp)
-                                                        )
+                                                },
+                                                trailing = if (isCur) {
+                                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                } else null
+                                            )
+                                        }
+                                    }
+
+                                    if (vms.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "Per-VM Terminal Styling",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+
+                                        vms.forEach { vm ->
+                                            var vmBg by remember(vm.id) { mutableStateOf(preferences.getConsoleBgForVM(vm.id)) }
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = vm.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    SETTINGS_CONSOLE_BG_OPTIONS.forEach { (bgKey, bgLabel) ->
+                                                        val isCur = vmBg == bgKey
+                                                        val clr = resolveConsoleBackground(bgKey)
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(48.dp)
+                                                                .clip(CircleShape)
+                                                                .semantics {
+                                                                    contentDescription = "$bgLabel background for ${vm.name}"
+                                                                }
+                                                                .selectable(
+                                                                    selected = isCur,
+                                                                    role = Role.RadioButton
+                                                                ) {
+                                                                    vmBg = bgKey
+                                                                    preferences.setConsoleBgForVM(vm.id, bgKey)
+                                                                },
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(26.dp)
+                                                                    .clip(if (isCur) ExpressiveShapes.clover() else CircleShape)
+                                                                    .background(clr)
+                                                                    .border(
+                                                                        if (isCur) 2.dp else 1.dp,
+                                                                        if (isCur) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                                                        if (isCur) ExpressiveShapes.clover() else CircleShape
+                                                                    )
+                                                            )
+                                                            if (isCur) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Check,
+                                                                    contentDescription = null,
+                                                                    tint = if (clr.luminance() > 0.4f) Color.Black else Color.White,
+                                                                    modifier = Modifier.size(14.dp)
+                                                                )
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -797,139 +667,193 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
 
-            // =========================================================================
-            // HUB 3: App Info & Updates Manager
-            // =========================================================================
-            item {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text("App Info & Updates Manager", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("GitHub releases telemetry and direct APK downloads", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(12.dp))
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ExpressiveSectionHeader(
+                            title = "App Info & Updates",
+                            subtitle = "GitHub releases and direct APK downloads"
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(40.dp)) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(22.dp))
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Text("Colab Client", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                        Text("Installed: $currentAppVersion (GitHub pitpitpo/colab)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-
-                                Button(
-                                    onClick = {
-                                        scope.launch {
-                                            isCheckingUpdates = true
-                                            updateCheckError = null
-                                            try {
-                                                latestRelease = fetchGitHubRelease()
-                                            } catch (e: Exception) {
-                                                updateCheckError = e.message ?: "Failed to reach GitHub"
-                                            } finally {
-                                                isCheckingUpdates = false
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Surface(
+                                            shape = ExpressiveShapes.clover(),
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            modifier = Modifier.size(46.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Info,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
                                             }
                                         }
-                                    },
-                                    enabled = !isCheckingUpdates,
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    if (isCheckingUpdates) {
-                                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                        Spacer(modifier = Modifier.width(14.dp))
+                                        Column {
+                                            Text(
+                                                text = "Colab Client",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "$currentAppVersion • pitpitpo/colab",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    FilledTonalButton(
+                                        onClick = {
+                                            scope.launch {
+                                                isCheckingUpdates = true
+                                                updateCheckError = null
+                                                try {
+                                                    latestRelease = fetchGitHubRelease()
+                                                } catch (e: Exception) {
+                                                    updateCheckError = e.message ?: "Failed to reach GitHub"
+                                                } finally {
+                                                    isCheckingUpdates = false
+                                                }
+                                            }
+                                        },
+                                        enabled = !isCheckingUpdates,
+                                        shape = CircleShape,
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Checking...", fontSize = 11.sp)
-                                    } else {
-                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Check Updates", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            text = if (isCheckingUpdates) "Checking" else "Updates",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
-                            }
 
-                            updateCheckError?.let { err ->
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
-                                    Text("Error: $err", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
+                                if (isCheckingUpdates) {
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    ExpressiveWavyProgressBar(progress = null)
                                 }
-                            }
 
-                            latestRelease?.let { release ->
-                                Spacer(modifier = Modifier.height(14.dp))
-                                val isUpdateAvailable = SemverUtil.isVersionNewer(release.tagName, currentAppVersion)
-                                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
-                                    Column(modifier = Modifier.padding(14.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = if (!isUpdateAvailable) Icons.Default.CheckCircle else Icons.Default.Download,
-                                                contentDescription = null,
-                                                tint = if (!isUpdateAvailable) statusSuccessColor() else MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
+                                updateCheckError?.let { err ->
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(18.dp),
+                                        color = MaterialTheme.colorScheme.errorContainer,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "Error: $err",
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(14.dp)
+                                        )
+                                    }
+                                }
+
+                                latestRelease?.let { release ->
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    val isUpdateAvailable = SemverUtil.isVersionNewer(release.tagName, currentAppVersion)
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = if (!isUpdateAvailable) Icons.Default.CheckCircle else Icons.Default.Download,
+                                                    contentDescription = null,
+                                                    tint = if (!isUpdateAvailable) statusSuccessColor() else MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = if (!isUpdateAvailable) {
+                                                        "Up to Date ($currentAppVersion)"
+                                                    } else {
+                                                        "Update Available: ${release.tagName}"
+                                                    },
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            if (release.title.isNotBlank() && release.title != release.tagName) {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = release.title,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            if (release.publishedAt.isNotBlank()) {
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "Published ${release.publishedAt.take(10)}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
                                             Text(
-                                                text = if (!isUpdateAvailable) "App is Up to Date ($currentAppVersion)" else "Update Available: ${release.tagName} (Current: $currentAppVersion)",
-                                                fontWeight = FontWeight.Bold,
-                                                style = MaterialTheme.typography.titleSmall
-                                            )
-                                        }
-                                        if (release.title.isNotBlank() && release.title != release.tagName) {
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = release.title,
-                                                style = MaterialTheme.typography.labelMedium,
+                                                text = release.body.take(200) + if (release.body.length > 200) "..." else "",
+                                                style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
-                                        }
-                                        if (release.publishedAt.isNotBlank()) {
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = "Published ${release.publishedAt.take(10)}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(release.body.take(200) + if (release.body.length > 200) "..." else "", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                                        if (isUpdateAvailable) {
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            if (release.assets.isEmpty()) {
-                                                OutlinedButton(
-                                                    onClick = { openExternalUrl(context, release.htmlUrl) },
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    shape = RoundedCornerShape(8.dp)
-                                                ) {
-                                                    Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text("Open GitHub Release Page", fontSize = 12.sp)
-                                                }
-                                            } else {
-                                                release.assets.forEach { asset ->
-                                                    OutlinedButton(
-                                                        onClick = { openExternalUrl(context, asset.downloadUrl) },
-                                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                                        shape = RoundedCornerShape(8.dp)
+                                            if (isUpdateAvailable) {
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                if (release.assets.isEmpty()) {
+                                                    Button(
+                                                        onClick = { openExternalUrl(context, release.htmlUrl) },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = CircleShape
                                                     ) {
-                                                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Text("Download ${asset.name} (${asset.sizeBytes / (1024 * 1024)} MB)", fontSize = 12.sp)
+                                                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Text("Open GitHub Release", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                                    }
+                                                } else {
+                                                    release.assets.forEach { asset ->
+                                                        Button(
+                                                            onClick = { openExternalUrl(context, asset.downloadUrl) },
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(vertical = 4.dp),
+                                                            shape = CircleShape
+                                                        ) {
+                                                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text(
+                                                                text = "Download ${asset.name} (${asset.sizeBytes / (1024 * 1024)} MB)",
+                                                                style = MaterialTheme.typography.labelLarge,
+                                                                fontWeight = FontWeight.Bold,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -956,7 +880,186 @@ fun SettingsScreen(
     }
 }
 
-private fun openExternalUrl(context: Context, url: String) {
+@Composable
+private fun RuntimeOptionCard(
+    title: String,
+    badge: String,
+    description: String,
+    tags: List<String>,
+    selected: Boolean,
+    shape: Shape,
+    onSelect: () -> Unit
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainer
+        },
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "runtimeOptionBg"
+    )
+    val contentColor = if (selected) {
+        MaterialTheme.colorScheme.onSecondaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
+    Surface(
+        shape = shape,
+        color = containerColor,
+        contentColor = contentColor,
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onSelect
+            )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(selected = selected, onClick = onSelect)
+                Spacer(modifier = Modifier.width(6.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Surface(
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                            shape = CircleShape
+                        ) {
+                            Text(
+                                text = badge,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 48.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                tags.forEach { tag ->
+                    Surface(
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.35f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        },
+                        shape = CircleShape
+                    ) {
+                        Text(
+                            text = tag,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeToggleItem(
+    icon: ImageVector,
+    iconContainerColor: Color,
+    iconTint: Color,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean,
+    shape: Shape,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        ListItem(
+            headlineContent = {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            supportingContent = {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            leadingContent = {
+                Surface(
+                    shape = ExpressiveShapes.clover(),
+                    color = iconContainerColor,
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = iconTint,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            },
+            trailingContent = {
+                Switch(
+                    checked = checked,
+                    enabled = enabled,
+                    onCheckedChange = onCheckedChange
+                )
+            },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.padding(vertical = 4.dp)
+        )
+    }
+}
+
+internal fun openExternalUrl(context: Context, url: String) {
     if (url.isBlank()) return
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -966,19 +1069,18 @@ private fun openExternalUrl(context: Context, url: String) {
 }
 
 private suspend fun fetchGitHubRelease(): GitHubReleaseInfo = withContext(Dispatchers.IO) {
-    val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
     val request = Request.Builder()
         .url("https://api.github.com/repos/pitpitpo/colab/releases/latest")
         .header("Accept", "application/vnd.github.v3+json")
         .header("User-Agent", "Colab-Android-Client")
         .build()
 
-    client.newCall(request).execute().use { response ->
+    HttpClientProvider.fastClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             throw java.io.IOException("HTTP ${response.code}: ${response.message}")
         }
         val body = response.body?.string() ?: throw IllegalStateException("Empty response")
-        val obj = Gson().fromJson(body, JsonObject::class.java)
+        val obj = HttpClientProvider.gson.fromJson(body, JsonObject::class.java)
         val tag = obj.get("tag_name")?.asString ?: "latest"
         val name = obj.get("name")?.asString ?: tag
         val releaseBody = obj.get("body")?.asString ?: ""
@@ -1008,224 +1110,4 @@ private suspend fun fetchGitHubRelease(): GitHubReleaseInfo = withContext(Dispat
             assets = assetsList
         )
     }
-}
-
-@Composable
-fun SignInAccountDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (email: String, name: String, accessToken: String, tier: String, tokenJson: String) -> Unit
-) {
-    val context = LocalContext.current
-    var authSession by remember { mutableStateOf<ColabAuthSession?>(null) }
-    var authCode by remember { mutableStateOf("") }
-    var isAuthenticating by remember { mutableStateOf(false) }
-    var authError by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-    // The CLI instance + PKCE session are prepared off the main thread instead of inside
-    // composition, so opening the dialog cannot jank or ANR on cold start.
-    LaunchedEffect(context) {
-        try {
-            authSession = withContext(Dispatchers.IO) {
-                AlpineAppContainerManager.getInstance(context).createInstanceAndGenerateAuthLink()
-            }
-        } catch (e: Exception) {
-            authError = e.message ?: "Could not prepare the authorization link"
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = { if (!isAuthenticating) onDismiss() },
-        properties = DialogProperties(decorFitsSystemWindows = true),
-        shape = RoundedCornerShape(28.dp),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        icon = {
-            Icon(
-                imageVector = Icons.Default.AccountCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
-        },
-        title = {
-            Text(
-                text = "Add Colab Account",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    text = "Authorize via the Alpine Colab CLI instance layer. Open or copy the authorization URL generated by the CLI, then paste the returned authorization code.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                // Generated link container card
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Link,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = "CLI OAuth Authorization Link",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Text(
-                            text = authSession?.authUrl ?: "Preparing authorization link…",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            FilledTonalButton(
-                                onClick = { authSession?.let { openExternalUrl(context, it.authUrl) } },
-                                enabled = authSession != null,
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Open Link", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            OutlinedButton(
-                                onClick = {
-                                    val session = authSession ?: return@OutlinedButton
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Auth URL", session.authUrl))
-                                    Toast.makeText(context, "Link copied to clipboard", Toast.LENGTH_SHORT).show()
-                                },
-                                enabled = authSession != null,
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Copy Link", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = authCode,
-                    onValueChange = { authCode = it.trim() },
-                    label = { Text("Authorization Code") },
-                    placeholder = { Text("Paste Google authorization code (4/...)") },
-                    leadingIcon = {
-                        Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(20.dp))
-                    },
-                    trailingIcon = {
-                        if (authCode.isNotEmpty()) {
-                            IconButton(onClick = { authCode = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    },
-                    isError = authError != null,
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
-                    )
-                )
-
-                authError?.let { err ->
-                    Text(
-                        text = err,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (authCode.isBlank()) {
-                        authError = "Please enter the authorization code."
-                        return@Button
-                    }
-                    val session = authSession ?: return@Button
-                    isAuthenticating = true
-                    authError = null
-                    scope.launch {
-                        try {
-                            val profile = ColabAuthEngine.exchangeCodeForProfile(authCode, session)
-                            onConfirm(profile.email, profile.displayName, profile.accessToken, profile.tier, profile.tokenJson)
-                        } catch (e: Exception) {
-                            authError = e.message ?: "Authentication failed"
-                        } finally {
-                            isAuthenticating = false
-                        }
-                    }
-                },
-                enabled = !isAuthenticating && authSession != null && authCode.isNotBlank(),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                if (isAuthenticating) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Authenticating...")
-                } else {
-                    Text("Connect Account", fontWeight = FontWeight.Bold)
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !isAuthenticating
-            ) {
-                Text("Cancel")
-            }
-        }
-    )
 }

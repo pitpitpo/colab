@@ -12,65 +12,72 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
+import com.pox.colab.ui.component.expressive.ExpressiveShapes
 
 @Composable
 fun ListItemPlaceholder(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(18.dp)
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainer
     ) {
-        // Leading Icon / Thumbnail circle
-        Box(
+        Row(
             modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .shimmer()
-        )
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.Center
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Headline
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.65f)
-                    .height(16.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .size(42.dp)
+                    .clip(ExpressiveShapes.clover())
                     .shimmer()
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.width(16.dp))
 
-            // Subtitle
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.65f)
+                        .height(16.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .shimmer()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.4f)
+                        .height(12.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .shimmer()
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.4f)
-                    .height(12.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .size(24.dp)
+                    .clip(CircleShape)
                     .shimmer()
             )
         }
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        // Trailing action placeholder
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .shimmer()
-        )
     }
 }

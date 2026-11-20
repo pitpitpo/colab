@@ -8,28 +8,33 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.core.view.WindowCompat
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -38,24 +43,23 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.pox.colab.theme.ColabTheme
+import com.pox.colab.ui.component.expressive.ExpressiveFloatingNavBar
+import com.pox.colab.ui.component.expressive.FloatingNavDestination
 import com.pox.colab.ui.home.HomeScreen
 import com.pox.colab.ui.navigation.Screen
 import com.pox.colab.ui.settings.SettingsScreen
 import com.pox.colab.ui.vmdetails.VMDetailsScreen
-import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as ColabApp
 
-        // System bar icon appearance must follow the *app* theme preference, not the system
-        // night mode, otherwise forced light/dark themes render invisible status bar icons.
         val initialDark = app.preferences.isDarkMode()
         val initialBackground = if (initialDark) {
-            if (app.preferences.isPureBlack()) AndroidColor.BLACK else 0xFF0F0F0F.toInt()
+            if (app.preferences.isPureBlack()) AndroidColor.BLACK else 0xFF0E1014.toInt()
         } else {
-            AndroidColor.WHITE
+            0xFFFFF8F2.toInt()
         }
         enableEdgeToEdge(
             statusBarStyle = if (initialDark) {
@@ -69,14 +73,13 @@ class MainActivity : ComponentActivity() {
                 SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
             }
         )
-        // No first-frame flash in the opposite theme while Compose composes.
         window.setBackgroundDrawable(ColorDrawable(initialBackground))
 
         setContent {
-            val isDynamic by app.preferences.isDynamicColorFlow.collectAsState()
-            val isDark by app.preferences.isDarkModeFlow.collectAsState()
-            val isPureBlack by app.preferences.isPureBlackFlow.collectAsState()
-            val palette by app.preferences.selectedPaletteFlow.collectAsState()
+            val isDynamic by app.preferences.isDynamicColorFlow.collectAsStateWithLifecycle()
+            val isDark by app.preferences.isDarkModeFlow.collectAsStateWithLifecycle()
+            val isPureBlack by app.preferences.isPureBlackFlow.collectAsStateWithLifecycle()
+            val palette by app.preferences.selectedPaletteFlow.collectAsStateWithLifecycle()
 
             ColabTheme(
                 darkTheme = isDark,
@@ -88,8 +91,6 @@ class MainActivity : ComponentActivity() {
                 val backgroundArgb = MaterialTheme.colorScheme.background.toArgb()
                 SideEffect {
                     val window = (view.context as? Activity)?.window ?: return@SideEffect
-                    // Keep the window (behind Compose) in sync with the active theme so
-                    // activity transitions never flash the opposite background.
                     window.setBackgroundDrawable(ColorDrawable(backgroundArgb))
                     WindowCompat.getInsetsController(window, view).apply {
                         isAppearanceLightStatusBars = !isDark
@@ -119,56 +120,32 @@ fun ColabAppNavHost(app: ColabApp) {
 
     val isTopLevelDestination = currentRoute == Screen.Home.route || currentRoute == Screen.Settings.route
 
-    Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            if (isTopLevelDestination) {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer
-                ) {
-                    NavigationBarItem(
-                        selected = currentRoute == Screen.Home.route,
-                        onClick = {
-                            if (currentRoute != Screen.Home.route) {
-                                navController.navigate(Screen.Home.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        },
-                        icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                        label = { Text("Home", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    )
+    val destinations = remember {
+        listOf(
+            FloatingNavDestination(
+                route = Screen.Home.route,
+                label = "Instances",
+                selectedIcon = Icons.Filled.Home,
+                unselectedIcon = Icons.Outlined.Home,
+                testTag = "nav_home"
+            ),
+            FloatingNavDestination(
+                route = Screen.Settings.route,
+                label = "Settings",
+                selectedIcon = Icons.Filled.Settings,
+                unselectedIcon = Icons.Outlined.Settings,
+                testTag = "nav_settings"
+            )
+        )
+    }
 
-                    NavigationBarItem(
-                        selected = currentRoute == Screen.Settings.route,
-                        onClick = {
-                            if (currentRoute != Screen.Settings.route) {
-                                navController.navigate(Screen.Settings.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                        label = { Text("Settings", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
+    Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
             startDestination = Screen.Home.route,
-            modifier = Modifier
-                .padding(innerPadding)
-                .consumeWindowInsets(innerPadding)
+            enterTransition = { fadeIn(animationSpec = tween(220)) },
+            exitTransition = { fadeOut(animationSpec = tween(160)) },
+            modifier = Modifier.fillMaxSize()
         ) {
             composable(Screen.Home.route) {
                 HomeScreen(
@@ -177,7 +154,13 @@ fun ColabAppNavHost(app: ColabApp) {
                         navController.navigate(Screen.VMDetails.createRoute(vmId, tabIndex))
                     },
                     onNavigateToSettings = {
-                        navController.navigate(Screen.Settings.route)
+                        navController.navigate(Screen.Settings.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 )
             }
@@ -187,7 +170,13 @@ fun ColabAppNavHost(app: ColabApp) {
                     repository = repository,
                     preferences = preferences,
                     onNavigateBack = {
-                        navController.popBackStack()
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 )
             }
@@ -215,6 +204,35 @@ fun ColabAppNavHost(app: ColabApp) {
                     }
                 )
             }
+        }
+
+        AnimatedVisibility(
+            visible = isTopLevelDestination,
+            enter = fadeIn(tween(180)) + slideInVertically(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
+                initialOffsetY = { it / 2 }
+            ),
+            exit = fadeOut(tween(140)) + slideOutVertically(targetOffsetY = { it / 2 }),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            ExpressiveFloatingNavBar(
+                destinations = destinations,
+                currentRoute = currentRoute,
+                onSelect = { dest ->
+                    if (currentRoute != dest.route) {
+                        navController.navigate(dest.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                }
+            )
         }
     }
 }
