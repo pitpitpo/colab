@@ -168,7 +168,13 @@ class VMRepository(
         val runtime = ensureFreshRuntime(vmId)
             ?: return@withContext Result.failure(Exception("No active Colab runtime connected"))
 
-        val script = ColabBootstrapGenerator.generateBootstrapScript(vm, token)
+        val targetVm = if (vm.tunnelProvider == TunnelProvider.CLOUDFLARE) {
+            val migrated = vm.copy(tunnelProvider = TunnelProvider.BORE)
+            updateVM(migrated)
+            migrated
+        } else vm
+
+        val script = ColabBootstrapGenerator.generateBootstrapScript(targetVm, token)
         val result = colabApiEngine.runBootstrapScript(
             bearerToken = token,
             runtime = runtime,
@@ -268,8 +274,10 @@ class VMRepository(
                 vm.sshConfig.host.contains("trycloudflare.com") ||
                 vm.sshConfig.host == "localhost"
             )
-            if (isBadTunnel || isBadHost) {
+            val updatedTunnelProvider = if (vm.tunnelProvider == TunnelProvider.CLOUDFLARE) TunnelProvider.BORE else vm.tunnelProvider
+            if (isBadTunnel || isBadHost || updatedTunnelProvider != vm.tunnelProvider) {
                 vm.copy(
+                    tunnelProvider = updatedTunnelProvider,
                     tunnelUrl = if (isBadTunnel) null else vm.tunnelUrl,
                     sshConfig = if (isBadHost) vm.sshConfig.copy(host = "", port = 22) else vm.sshConfig
                 )

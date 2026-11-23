@@ -349,7 +349,7 @@ fun AddVMDialog(
                                         .horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    listOf(TunnelProvider.CLOUDFLARE, TunnelProvider.BORE).forEach { tun ->
+                                    listOf(TunnelProvider.BORE, TunnelProvider.CLOUDFLARE).forEach { tun ->
                                         val selected = selectedTunnelProvider == tun
                                         ExpressiveMorphingChip(
                                             selected = selected,
@@ -394,7 +394,7 @@ fun AddVMDialog(
                         finalName,
                         finalAccountId,
                         if (selectedMode == 0) HardwareAccelerator.T4 else selectedAccelerator,
-                        if (selectedMode == 0) TunnelProvider.CLOUDFLARE else selectedTunnelProvider,
+                        if (selectedMode == 0) TunnelProvider.BORE else selectedTunnelProvider,
                         if (selectedMode == 0) ResilientProtocol.TMUX_SSH else selectedProtocol,
                         finalPassword,
                         if (selectedMode == 0) "" else tunnelEndpoint.trim()

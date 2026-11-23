@@ -17,7 +17,28 @@ object ColabBootstrapGenerator {
         val discoveryUrl = TunnelDiscoveryEngine.getDiscoveryUrl(vm.id)
 
         val tunnelCmd = when (vm.tunnelProvider) {
-            TunnelProvider.BORE, TunnelProvider.CLOUDFLARE -> """
+            TunnelProvider.CLOUDFLARE -> """
+                # Install Cloudflared Tunnel (*.trycloudflare.com)
+                if ! command -v cloudflared &> /dev/null; then
+                    curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+                    chmod +x /usr/local/bin/cloudflared
+                fi
+                echo "[*] Starting Cloudflare Quick Tunnel (*.trycloudflare.com)..."
+                cloudflared tunnel --url ssh://localhost:${vm.sshConfig.port} > /tmp/tunnel.log 2>&1 &
+                
+                # Auto-detect Cloudflare endpoint and broadcast to app
+                for i in $(seq 1 30); do
+                    if [ -f /tmp/tunnel.log ]; then
+                        EP=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -n 1 || true)
+                        if [ -n "${'$'}EP" ]; then
+                            announce_endpoint "${'$'}EP"
+                            break
+                        fi
+                    fi
+                    sleep 1
+                done
+            """.trimIndent()
+            TunnelProvider.BORE -> """
                 # Multi-Provider Resilient TCP Tunnel Supervisor (Bore -> Pinggy TCP -> Serveo TCP)
                 # Android native SSH & SFTP clients require direct raw TCP sockets;
                 # using multi-provider TCP tunneling ensures bulletproof connectivity on mobile.
