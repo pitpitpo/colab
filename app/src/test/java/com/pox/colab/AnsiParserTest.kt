@@ -55,11 +55,11 @@ class AnsiParserTest {
         assertTrue(result.spanStyles.isNotEmpty())
 
         // Verify bold span
-        val boldSpan = result.spanStyles.find { it.style.fontWeight == FontWeight.Bold }
+        val boldSpan = result.spanStyles.find { it.item.fontWeight == FontWeight.Bold }
         assertNotNull("Expected bold span", boldSpan)
 
         // Verify underline span
-        val underlineSpan = result.spanStyles.find { it.style.textDecoration == TextDecoration.Underline }
+        val underlineSpan = result.spanStyles.find { it.item.textDecoration == TextDecoration.Underline }
         assertNotNull("Expected underline span", underlineSpan)
     }
 
@@ -70,7 +70,7 @@ class AnsiParserTest {
         val result = AnsiParser.parseToAnnotatedString(ansiInput, defaultFg = Color.White, defaultBg = Color.Black)
         assertEquals("Red256", result.text)
         assertEquals(1, result.spanStyles.size)
-        assertEquals(Color(255, 0, 0), result.spanStyles[0].style.color)
+        assertEquals(Color(255, 0, 0), result.spanStyles[0].item.color)
     }
 
     @Test
@@ -79,7 +79,7 @@ class AnsiParserTest {
         val result = AnsiParser.parseToAnnotatedString(ansiInput, defaultFg = Color.White, defaultBg = Color.Black)
         assertEquals("TrueColor", result.text)
         assertEquals(1, result.spanStyles.size)
-        assertEquals(Color(123, 45, 67), result.spanStyles[0].style.color)
+        assertEquals(Color(123, 45, 67), result.spanStyles[0].item.color)
     }
 
     @Test
