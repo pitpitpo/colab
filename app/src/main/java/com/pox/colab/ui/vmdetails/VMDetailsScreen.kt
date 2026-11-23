@@ -331,7 +331,11 @@ fun VMDetailsScreen(
                     0 -> DashboardTab(
                         vm = vm,
                         repository = repository,
-                        onConfigureTunnel = { showTunnelDialog = true }
+                        onConfigureTunnel = { showTunnelDialog = true },
+                        onOpenConsole = {
+                            selectedTabIndex = 1
+                            pagerScope.launch { pagerState.animateScrollToPage(1) }
+                        }
                     )
                     1 -> SSHTab(
                         vm = vm,

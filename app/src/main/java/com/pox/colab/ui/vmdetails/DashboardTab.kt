@@ -1,8 +1,5 @@
 package com.pox.colab.ui.vmdetails
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -27,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeveloperBoard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
@@ -42,6 +38,7 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -94,7 +91,8 @@ import kotlinx.coroutines.launch
 fun DashboardTab(
     vm: ColabVM,
     repository: VMRepository,
-    onConfigureTunnel: () -> Unit
+    onConfigureTunnel: () -> Unit,
+    onOpenConsole: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -562,13 +560,13 @@ fun DashboardTab(
                 ) {
                     Column(modifier = Modifier.padding(22.dp)) {
                         Text(
-                            text = "Runtime Controls & Bootstrap",
+                            text = "Runtime Controls",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Automated provisioning runs in the background. You can also copy the bootstrap script to run manually in any Colab notebook.",
+                            text = "Managed automatically by the Colab engine — provision, connect, and control your runtime right inside the app.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -578,25 +576,42 @@ fun DashboardTab(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
+                            val isRunning = vm.status == VMStatus.RUNNING
                             Button(
                                 onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Colab Bootstrap Script", vm.bootstrapScript)
-                                    clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Bootstrap script copied!", Toast.LENGTH_SHORT).show()
+                                    if (isRunning) {
+                                        repository.stopVM(vm.id)
+                                    } else {
+                                        repository.spinUpVM(vm.id)
+                                    }
                                 },
-                                modifier = Modifier.weight(1f),
+                                enabled = vm.status != VMStatus.STARTING,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("dashboard_runtime_power_button"),
                                 shape = ExpressiveShapes.connectedStart,
+                                colors = if (isRunning) {
+                                    ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                } else {
+                                    ButtonDefaults.buttonColors()
+                                },
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.ContentCopy,
+                                    imageVector = if (isRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Copy Script",
+                                    text = when (vm.status) {
+                                        VMStatus.RUNNING -> "Stop Runtime"
+                                        VMStatus.STARTING -> "Starting..."
+                                        else -> "Start Runtime"
+                                    },
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1
@@ -604,35 +619,21 @@ fun DashboardTab(
                             }
 
                             FilledTonalButton(
-                                onClick = {
-                                    if (vm.status == VMStatus.RUNNING) {
-                                        repository.stopVM(vm.id)
-                                    } else {
-                                        repository.spinUpVM(vm.id)
-                                    }
-                                },
-                                enabled = vm.status != VMStatus.STARTING,
-                                modifier = Modifier.weight(1f),
+                                onClick = onOpenConsole,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("dashboard_open_console_button"),
                                 shape = ExpressiveShapes.connectedEnd,
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (vm.status == VMStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                    imageVector = Icons.Default.Terminal,
                                     contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = if (vm.status == VMStatus.RUNNING) {
-                                        MaterialTheme.colorScheme.error
-                                    } else {
-                                        MaterialTheme.colorScheme.onSecondaryContainer
-                                    }
+                                    modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = when (vm.status) {
-                                        VMStatus.RUNNING -> "Stop"
-                                        VMStatus.STARTING -> "Starting..."
-                                        else -> "Start"
-                                    },
+                                    text = "Open Console",
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1
@@ -702,28 +703,6 @@ fun DashboardTab(
                                     Text("Health Check", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                                 }
                             }
-                        }
-
-                        Spacer(modifier = Modifier.height(18.dp))
-
-                        Text(
-                            text = "Notebook Bootstrap Snippet",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(18.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh
-                        ) {
-                            Text(
-                                text = vm.bootstrapScript.take(280) + "\n...",
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
-                                modifier = Modifier.padding(16.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                     }
                 }
