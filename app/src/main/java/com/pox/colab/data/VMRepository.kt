@@ -5,6 +5,7 @@ import com.pox.colab.engine.AlpineAppContainerManager
 import com.pox.colab.engine.AlpineBootstrapGenerator
 import com.pox.colab.engine.ColabAccelerator
 import com.pox.colab.engine.ColabApiEngine
+import com.pox.colab.engine.ColabBootstrapGenerator
 import com.pox.colab.engine.ColabCcuInfo
 import com.pox.colab.engine.ColabRuntime
 import com.pox.colab.engine.RuntimeStatus
