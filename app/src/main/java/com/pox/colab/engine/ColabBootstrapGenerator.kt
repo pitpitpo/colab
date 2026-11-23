@@ -17,29 +17,10 @@ object ColabBootstrapGenerator {
         val discoveryUrl = TunnelDiscoveryEngine.getDiscoveryUrl(vm.id)
 
         val tunnelCmd = when (vm.tunnelProvider) {
-            TunnelProvider.CLOUDFLARE -> """
-                # Install Cloudflared Tunnel (*.trycloudflare.com)
-                if ! command -v cloudflared &> /dev/null; then
-                    curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-                    chmod +x /usr/local/bin/cloudflared
-                fi
-                echo "[*] Starting Cloudflare Quick Tunnel (*.trycloudflare.com)..."
-                cloudflared tunnel --url ssh://localhost:${vm.sshConfig.port} > /tmp/tunnel.log 2>&1 &
-                
-                # Auto-detect Cloudflare endpoint and broadcast to app
-                for i in $(seq 1 30); do
-                    if [ -f /tmp/tunnel.log ]; then
-                        EP=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -n 1 || true)
-                        if [ -n "${'$'}EP" ]; then
-                            announce_endpoint "${'$'}EP"
-                            break
-                        fi
-                    fi
-                    sleep 1
-                done
-            """.trimIndent()
-            TunnelProvider.BORE -> """
-                # Install bore tcp tunnel binary
+            TunnelProvider.BORE, TunnelProvider.CLOUDFLARE -> """
+                # Multi-Provider Resilient TCP Tunnel Supervisor (Bore -> Pinggy TCP -> Serveo TCP)
+                # Android native SSH & SFTP clients require direct raw TCP sockets;
+                # using multi-provider TCP tunneling ensures bulletproof connectivity on mobile.
                 if ! command -v bore &> /dev/null; then
                     curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin 2>/dev/null || true
                     chmod +x /usr/local/bin/bore 2>/dev/null || true
@@ -70,7 +51,7 @@ object ColabBootstrapGenerator {
                 if [ -z "${'$'}TUNNEL_ESTABLISHED" ]; then
                     echo "[*] Bore server busy/unreachable; falling back to Pinggy TCP tunnel..."
                     (while true; do
-                        ssh -p 443 -R0:localhost:${vm.sshConfig.port} -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -o ServerAliveCountMax=3 a.pinggy.io >> /tmp/pinggy.log 2>&1 || true
+                        ssh -p 443 -R0:localhost:${vm.sshConfig.port} -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -o ServerAliveCountMax=3 a.pinggy.io tcp >> /tmp/pinggy.log 2>&1 || true
                         sleep 2
                     done) &
 
@@ -250,6 +231,10 @@ CLICONTENT
             DISCOVERY_TOPIC="$discoveryTopic"
             DISCOVERY_URL="$discoveryUrl"
 
+            # Create /content/tmp symlink so Jupyter Contents API can access /tmp artifacts
+            mkdir -p /content 2>/dev/null || true
+            ln -sfn /tmp /content/tmp 2>/dev/null || true
+
             announce_endpoint() {
                 local ep="${'$'}1"
                 if [ -n "${'$'}ep" ]; then
@@ -257,6 +242,7 @@ CLICONTENT
                     echo "   TUNNEL READY: ${'$'}ep"
                     echo "=========================================================="
                     echo "${'$'}ep" > /tmp/colab_tunnel_endpoint.txt
+                    echo "${'$'}ep" > /content/colab_tunnel_endpoint.txt 2>/dev/null || true
                     for attempt in 1 2 3 4 5; do
                         if curl -s -m 5 -d "${'$'}ep" "${'$'}DISCOVERY_URL" > /dev/null 2>&1; then
                             echo "[*] Auto-announced endpoint to Android app successfully."
@@ -346,6 +332,9 @@ def collect_metrics():
         if os.path.exists('/tmp/colab_tunnel_endpoint.txt'):
             with open('/tmp/colab_tunnel_endpoint.txt') as f:
                 tunnel_ep = f.read().strip()
+        elif os.path.exists('/content/colab_tunnel_endpoint.txt'):
+            with open('/content/colab_tunnel_endpoint.txt') as f:
+                tunnel_ep = f.read().strip()
     except Exception:
         pass
 
@@ -373,6 +362,11 @@ def metrics_writer_loop():
             m = collect_metrics()
             with open('/tmp/colab_metrics.json', 'w') as f:
                 json.dump(m, f)
+            try:
+                with open('/content/colab_metrics.json', 'w') as f:
+                    json.dump(m, f)
+            except Exception:
+                pass
         except Exception:
             pass
         time.sleep(3)

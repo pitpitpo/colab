@@ -151,7 +151,7 @@ fun ConfigureTunnelDialog(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "• bore.pub:38491\n• tcp://bore.pub:38491\n• ssh://xxx.trycloudflare.com\n• 34.12.34.56:22",
+                            text = "• bore.pub:38491\n• tcp://bore.pub:38491\n• a.pinggy.io:44321\n• serveo.net:2222\n• 34.12.34.56:22",
                             style = MaterialTheme.typography.labelSmall.copy(fontFamily = MonoFontFamily),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

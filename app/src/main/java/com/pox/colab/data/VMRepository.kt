@@ -157,6 +157,34 @@ class VMRepository(
         colabApiEngine.checkRuntimeStatus(token, runtime)
     }
 
+    /** Re-runs the bootstrap TCP tunnel script directly on the active Colab runtime for [vmId]. */
+    suspend fun redeployTunnel(vmId: String): Result<String> = withContext(Dispatchers.IO) {
+        val vm = getVMById(vmId)
+            ?: return@withContext Result.failure(Exception("Instance not found"))
+        val account = _accounts.value.find { it.id == vm.accountId } ?: _activeAccount.value
+            ?: return@withContext Result.failure(Exception("No authenticated Google account found"))
+        val token = getFreshAccountToken(account)
+        val runtime = ensureFreshRuntime(vmId)
+            ?: return@withContext Result.failure(Exception("No active Colab runtime connected"))
+
+        val script = ColabBootstrapGenerator.generateBootstrapScript(vm, token)
+        val result = colabApiEngine.runBootstrapScript(
+            bearerToken = token,
+            runtime = runtime,
+            bootstrapScript = script
+        )
+        if (result.isSuccess) {
+            val (_, execResult) = result.getOrThrow()
+            val discovered = parseDiscoveredEndpoint(execResult.stdout)
+            if (!discovered.isNullOrBlank()) {
+                updateTunnelEndpoint(vmId, discovered)
+                return@withContext Result.success(discovered)
+            }
+        }
+        startTunnelDiscovery(vmId)
+        Result.success("Tunnel discovery initialized")
+    }
+
     suspend fun resolveActiveRuntime(vmId: String): ColabRuntime? {
         _activeRuntimes[vmId]?.takeIf { !it.needsProxyResolution() }?.let { return it }
         val lastMiss = lastNegativeRuntimeLookup[vmId]
@@ -231,10 +259,14 @@ class VMRepository(
                 vm.accountId.isNotBlank() && vm.accountId in validAccountIds
             }
         }
-        // Sanitize any corrupted tunnelUrl or sshConfig host pointing to colab.research.google.com
+        // Sanitize any corrupted tunnelUrl or sshConfig host pointing to colab.research.google.com or trycloudflare.com
         val sanitizedVMs = validVMs.map { vm ->
-            val isBadTunnel = vm.tunnelUrl?.contains("colab.research.google.com") == true
-            val isBadHost = vm.sshConfig.host.contains("colab.research.google.com")
+            val isBadTunnel = vm.tunnelUrl?.let { it.contains("colab.research.google.com") || it.contains("trycloudflare.com") || !isValidTunnelEndpoint(it) } ?: false
+            val isBadHost = vm.sshConfig.host.isNotBlank() && (
+                vm.sshConfig.host.contains("colab.research.google.com") ||
+                vm.sshConfig.host.contains("trycloudflare.com") ||
+                vm.sshConfig.host == "localhost"
+            )
             if (isBadTunnel || isBadHost) {
                 vm.copy(
                     tunnelUrl = if (isBadTunnel) null else vm.tunnelUrl,
@@ -961,13 +993,15 @@ class VMRepository(
         private val PINGGY_REGEX = Regex("""((?:tcp://)?[a-zA-Z0-9.-]+\.pinggy\.(?:io|link):[0-9]+)""")
         private val SERVEO_REGEX = Regex("""(serveo\.net:[0-9]+)""")
         private val NGROK_REGEX = Regex("""([a-zA-Z0-9.-]+\.ngrok(?:-free)?\.(?:io|app):[0-9]+)""")
-        private val CLOUDFLARE_REGEX = Regex("""(https://[a-zA-Z0-9-]+\.trycloudflare\.com)""")
 
         fun isValidTunnelEndpoint(ep: String?): Boolean {
             if (ep.isNullOrBlank()) return false
             val clean = ep.trim().lowercase()
-            if (clean.contains("colab.research.google.com") || clean == "localhost" || clean.startsWith("127.")) return false
-            return clean.contains(":") || clean.contains(".trycloudflare.com")
+            if (clean.contains("colab.research.google.com") ||
+                clean.contains("trycloudflare.com") ||
+                clean == "localhost" ||
+                clean.startsWith("127.")) return false
+            return clean.contains(":")
         }
 
         fun parseDiscoveredEndpoint(text: String): String? {
@@ -994,11 +1028,6 @@ class VMRepository(
             }
             // 5. Ngrok TCP tunnel
             NGROK_REGEX.find(text)?.let {
-                val candidate = it.groupValues[1].trim()
-                if (isValidTunnelEndpoint(candidate)) return candidate
-            }
-            // 6. Cloudflare tunnel: https://<domain>.trycloudflare.com
-            CLOUDFLARE_REGEX.find(text)?.let {
                 val candidate = it.groupValues[1].trim()
                 if (isValidTunnelEndpoint(candidate)) return candidate
             }

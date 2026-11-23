@@ -141,7 +141,11 @@ fun DashboardTab(
                 if (curVm != null && !VMRepository.isValidTunnelEndpoint(curVm.tunnelUrl)) {
                     try {
                         val tunnelRes = ColabApiEngine.getInstance().readFile(runtime, "tmp/colab_tunnel_endpoint.txt")
-                        val tunnelEp = tunnelRes.getOrNull()?.trim()
+                        var tunnelEp = tunnelRes.getOrNull()?.trim()
+                        if (!VMRepository.isValidTunnelEndpoint(tunnelEp)) {
+                            val fallbackRes = ColabApiEngine.getInstance().readFile(runtime, "colab_tunnel_endpoint.txt")
+                            tunnelEp = fallbackRes.getOrNull()?.trim()
+                        }
                         if (VMRepository.isValidTunnelEndpoint(tunnelEp)) {
                             repository.updateTunnelEndpoint(vm.id, tunnelEp!!)
                         }
@@ -336,6 +340,31 @@ fun DashboardTab(
                                     text = vm.sshConfig.resilientProtocol.label,
                                     tint = statusSuccessColor()
                                 )
+                            }
+
+                            if (vm.status == VMStatus.RUNNING && !hasTunnel) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            Toast.makeText(context, "Deploying TCP tunnel on Colab...", Toast.LENGTH_SHORT).show()
+                                            val res = repository.redeployTunnel(vm.id)
+                                            val msg = res.fold(
+                                                onSuccess = { ep -> "Tunnel deployed: $ep" },
+                                                onFailure = { err -> "Tunnel deploy failed: ${err.message}" }
+                                            )
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("dashboard_deploy_tcp_tunnel_button"),
+                                    shape = CircleShape
+                                ) {
+                                    Icon(Icons.Default.Cable, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Deploy TCP Tunnel", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
@@ -681,6 +710,27 @@ fun DashboardTab(
                                     Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("Restart Kernel", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                FilledTonalButton(
+                                    onClick = {
+                                        scope.launch {
+                                            Toast.makeText(context, "Re-deploying TCP tunnel...", Toast.LENGTH_SHORT).show()
+                                            val res = repository.redeployTunnel(vm.id)
+                                            val msg = res.fold(
+                                                onSuccess = { ep -> "Tunnel deployed: $ep" },
+                                                onFailure = { err -> "Tunnel redeploy failed: ${err.message}" }
+                                            )
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    shape = CircleShape,
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+                                    modifier = Modifier.testTag("dashboard_redeploy_tunnel_button")
+                                ) {
+                                    Icon(Icons.Default.Cable, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Redeploy Tunnel", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                                 }
 
                                 FilledTonalButton(

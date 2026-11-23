@@ -69,7 +69,11 @@ class VMRepositoryTest {
         assertTrue(VMRepository.isValidTunnelEndpoint("a.pinggy.io:44321"))
         assertTrue(VMRepository.isValidTunnelEndpoint("serveo.net:2222"))
         assertTrue(VMRepository.isValidTunnelEndpoint("0.tcp.ngrok.io:12345"))
-        assertTrue(VMRepository.isValidTunnelEndpoint("https://my-colab.trycloudflare.com"))
+
+        // Cloudflare Quick Tunnels (trycloudflare.com) are HTTP/WS reverse proxies that block raw TCP port 22 on Android
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint("https://my-colab.trycloudflare.com"))
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint("actual-liverpool-speakers-parent.trycloudflare.com"))
+        org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint("actual-liverpool-speakers-parent.trycloudflare.com:22"))
 
         // Invalid / internal / REST endpoints that must never be treated as SSH tunnels
         org.junit.Assert.assertFalse(VMRepository.isValidTunnelEndpoint("https://colab.research.google.com/tun/m/gpu-t4-s-12345"))
