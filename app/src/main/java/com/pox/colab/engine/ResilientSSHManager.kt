@@ -265,6 +265,18 @@ class ResilientSSHManager(
 
     fun clearOutput() = clearScreen()
 
+    fun resizePty(cols: Int, rows: Int) {
+        val ch = shellChannel ?: return
+        try {
+            ch.setPtySize(cols.coerceAtLeast(20), rows.coerceAtLeast(5), cols * 8, rows * 16)
+        } catch (_: Exception) {}
+    }
+
+    fun getPlainTextBuffer(): String {
+        val lines = _terminalOutput.value
+        return lines.joinToString("\n") { AnsiParser.stripAnsi(it.text) }
+    }
+
     fun clearScreen() {
         synchronized(outputLock) {
             lineBuffer.clear()
@@ -546,7 +558,7 @@ class ResilientSSHManager(
                     break
                 } else {
                     partialLine.append(normalized, start, nlIdx)
-                    val completed = partialLine.toString().replace("\r", "")
+                    val completed = AnsiParser.resolveCarriageReturns(partialLine.toString())
                     partialLine.setLength(0)
                     if (completed.isNotEmpty()) {
                         pushLineLocked(TerminalLine(text = completed, isSystemNotice = false))
@@ -591,7 +603,7 @@ class ResilientSSHManager(
             val list = ArrayList<TerminalLine>(lineBuffer.size + 1)
             list.addAll(lineBuffer)
             if (partialLine.isNotEmpty()) {
-                val prompt = partialLine.toString().replace("\r", "")
+                val prompt = AnsiParser.resolveCarriageReturns(partialLine.toString())
                 if (prompt.isNotEmpty()) {
                     list.add(TerminalLine(id = PARTIAL_LINE_ID, text = prompt, isSystemNotice = false))
                 }

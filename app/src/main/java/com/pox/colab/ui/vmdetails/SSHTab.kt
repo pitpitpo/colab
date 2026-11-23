@@ -1,9 +1,16 @@
 package com.pox.colab.ui.vmdetails
 
+import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -16,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,16 +34,23 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Cable
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -53,52 +68,61 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pox.colab.data.AppPreferences
+import com.pox.colab.engine.AnsiParser
 import com.pox.colab.engine.ResilientSSHManager
 import com.pox.colab.engine.SSHConnectionState
 import com.pox.colab.model.ColabVM
 import com.pox.colab.model.VMMetrics
 import com.pox.colab.model.VMStatus
 import com.pox.colab.theme.MonoFontFamily
-import com.pox.colab.theme.TerminalCyan
-import com.pox.colab.theme.TerminalForeground
-import com.pox.colab.theme.TerminalRed
-import com.pox.colab.theme.TerminalYellow
-import com.pox.colab.theme.resolveConsoleBackground
+import com.pox.colab.theme.TerminalThemes
 import com.pox.colab.theme.statusErrorColor
 import com.pox.colab.theme.statusNeutralColor
 import com.pox.colab.theme.statusSuccessColor
 import com.pox.colab.theme.statusWarningColor
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
-private val SSH_CONSOLE_BG_OPTIONS = listOf(
-    "amoled_black" to "AMOLED Pure Black",
-    "deep_charcoal" to "Deep Charcoal",
-    "navy_terminal" to "Navy Terminal",
-    "matrix_dark" to "Matrix Dark",
-    "monokai_dark" to "Monokai Dark"
-)
+private val SSH_QUICK_COMMANDS = listOf("ls -la", "nvidia-smi", "htop", "ps aux", "clear", "tmux ls")
 
-private val SSH_QUICK_COMMANDS = listOf("ls -la", "htop", "tmux ls")
+enum class TerminalInputMode {
+    LIVE_SHELL,
+    COMMAND_BAR
+}
 
 data class ConsoleTabSession(
     val id: String,
@@ -106,11 +130,6 @@ data class ConsoleTabSession(
     val manager: ResilientSSHManager
 )
 
-/**
- * Retains multi-tab SSH sessions above the [androidx.compose.foundation.pager.HorizontalPager]
- * so that [VMDetailsScreen]'s `beyondBoundsPageCount = 0` policy (no eager off-screen
- * connections) does not tear down a live console every time the user peeks at another tab.
- */
 class ConsoleSessionHolder(
     private val vm: ColabVM,
     private val scope: CoroutineScope,
@@ -197,15 +216,22 @@ fun SSHTab(
     sessionHolder: ConsoleSessionHolder,
     onConfigureTunnel: () -> Unit
 ) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+
     val sessions = sessionHolder.sessions
     val activeSessionId = sessionHolder.activeSessionId
     val currentSession = sessionHolder.activeSession
 
-    var termBgKey by remember(vm.id, activeSessionId) {
+    var themeKey by remember(vm.id, activeSessionId) {
         mutableStateOf(preferences.getConsoleBgForTerminal(vm.id, activeSessionId))
     }
-    val consoleBgColor = resolveConsoleBackground(termBgKey)
-    var showBgMenu by remember { mutableStateOf(false) }
+    val currentTheme = remember(themeKey) { TerminalThemes.resolve(themeKey) }
+
+    var fontSizeSp by remember { mutableFloatStateOf(12f) }
+    var inputMode by remember { mutableStateOf(TerminalInputMode.LIVE_SHELL) }
+    var showThemeMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentSession?.id, vm.sshConfig.host, vm.sshConfig.port, vm.tunnelUrl) {
         sessionHolder.connectIfNeeded()
@@ -214,23 +240,24 @@ fun SSHTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(consoleBgColor)
+            .background(currentTheme.background)
     ) {
+        // Multi-Tab & Session Header
         Surface(
-            color = MaterialTheme.colorScheme.surfaceContainer,
+            color = currentTheme.panelBg,
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
                     modifier = Modifier
                         .weight(1f)
                         .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     sessions.forEach { session ->
@@ -244,156 +271,156 @@ fun SSHTab(
                             SSHConnectionState.ERROR -> statusErrorColor()
                         }
 
-                        val tabCorner by animateDpAsState(
-                            targetValue = if (isSelected) 16.dp else 24.dp,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            ),
-                            label = "sshTabCorner"
-                        )
                         val tabBg by animateColorAsState(
                             targetValue = if (isSelected) {
-                                MaterialTheme.colorScheme.primaryContainer
+                                currentTheme.accentColor.copy(alpha = 0.22f)
                             } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
+                                currentTheme.panelBg.copy(alpha = 0.6f)
                             },
-                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                            label = "sshTabBg"
+                            label = "tabBg"
                         )
 
                         Surface(
-                            shape = RoundedCornerShape(tabCorner),
+                            shape = RoundedCornerShape(14.dp),
                             color = tabBg,
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
                                 .clickable(role = Role.Tab) { sessionHolder.select(session.id) }
                         ) {
                             Row(
-                                modifier = Modifier.padding(
-                                    start = 14.dp,
-                                    end = if (sessions.size > 1) 6.dp else 14.dp,
-                                    top = 7.dp,
-                                    bottom = 7.dp
-                                ),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                val stateLabel = when (sessionState) {
-                                    SSHConnectionState.CONNECTED -> "Online"
-                                    SSHConnectionState.CONNECTING -> "Connecting"
-                                    SSHConnectionState.RECONNECTING -> "Reconnecting"
-                                    SSHConnectionState.DISCONNECTED -> "Offline"
-                                    SSHConnectionState.ERROR -> "Error"
-                                }
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(7.dp)
                                         .clip(CircleShape)
                                         .background(tabStateColor)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = session.title,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) {
-                                            MaterialTheme.colorScheme.onPrimaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        }
-                                    )
-                                    Text(
-                                        text = stateLabel,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isSelected) {
-                                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                        } else {
-                                            tabStateColor
-                                        }
-                                    )
-                                }
-
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = session.title,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFontFamily),
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) currentTheme.foreground else currentTheme.foreground.copy(alpha = 0.7f)
+                                )
                                 if (sessions.size > 1) {
                                     Spacer(modifier = Modifier.width(4.dp))
                                     IconButton(
                                         onClick = { sessionHolder.closeSession(session) },
-                                        modifier = Modifier.size(32.dp)
+                                        modifier = Modifier.size(24.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Close,
                                             contentDescription = "Close ${session.title}",
-                                            tint = if (isSelected) {
-                                                MaterialTheme.colorScheme.onPrimaryContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                            modifier = Modifier.size(16.dp)
+                                            tint = currentTheme.foreground.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(13.dp)
                                         )
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                FilledTonalIconButton(
-                    onClick = { sessionHolder.addSession() },
-                    shape = CircleShape,
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "New Terminal Tab",
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Box {
-                    IconButton(onClick = { showBgMenu = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Palette,
-                            contentDescription = "Terminal Background",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    FilledTonalIconButton(
+                        onClick = { sessionHolder.addSession() },
+                        shape = CircleShape,
+                        modifier = Modifier.size(32.dp),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = currentTheme.panelBg,
+                            contentColor = currentTheme.foreground
                         )
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "New Session", modifier = Modifier.size(16.dp))
+                    }
+                }
+
+                // Terminal Action Toolbar in Top Right
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Mode Toggle: Live Shell vs Command Bar
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = currentTheme.accentColor.copy(alpha = 0.16f),
+                        modifier = Modifier.clickable {
+                            inputMode = if (inputMode == TerminalInputMode.LIVE_SHELL) {
+                                TerminalInputMode.COMMAND_BAR
+                            } else {
+                                TerminalInputMode.LIVE_SHELL
+                            }
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (inputMode == TerminalInputMode.LIVE_SHELL) Icons.Default.Terminal else Icons.Default.Add,
+                                contentDescription = null,
+                                tint = currentTheme.accentColor,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (inputMode == TerminalInputMode.LIVE_SHELL) "Live" else "Bar",
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = MonoFontFamily),
+                                fontWeight = FontWeight.Bold,
+                                color = currentTheme.accentColor
+                            )
+                        }
                     }
 
-                    DropdownMenu(
-                        expanded = showBgMenu,
-                        onDismissRequest = { showBgMenu = false }
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Font Zoom Controls
+                    IconButton(
+                        onClick = { if (fontSizeSp > 9f) fontSizeSp -= 1f },
+                        modifier = Modifier.size(30.dp)
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Inherit VM Default", style = MaterialTheme.typography.bodyMedium) },
-                            onClick = {
-                                val vmDefault = preferences.getConsoleBgForVM(vm.id)
-                                preferences.setConsoleBgForTerminal(vm.id, activeSessionId, vmDefault)
-                                termBgKey = vmDefault
-                                showBgMenu = false
-                            }
-                        )
-                        SSH_CONSOLE_BG_OPTIONS.forEach { (key, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
-                                leadingIcon = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .clip(CircleShape)
-                                            .background(resolveConsoleBackground(key))
-                                    )
-                                },
-                                onClick = {
-                                    preferences.setConsoleBgForTerminal(vm.id, activeSessionId, key)
-                                    termBgKey = key
-                                    showBgMenu = false
-                                }
+                        Text("A-", style = MaterialTheme.typography.labelSmall.copy(fontFamily = MonoFontFamily), color = currentTheme.foreground)
+                    }
+                    IconButton(
+                        onClick = { if (fontSizeSp < 20f) fontSizeSp += 1f },
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Text("A+", style = MaterialTheme.typography.labelSmall.copy(fontFamily = MonoFontFamily), color = currentTheme.foreground)
+                    }
+
+                    // Theme Palette Menu
+                    Box {
+                        IconButton(
+                            onClick = { showThemeMenu = true },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = "Terminal Theme",
+                                tint = currentTheme.accentColor,
+                                modifier = Modifier.size(16.dp)
                             )
+                        }
+
+                        DropdownMenu(
+                            expanded = showThemeMenu,
+                            onDismissRequest = { showThemeMenu = false }
+                        ) {
+                            TerminalThemes.ALL_THEMES.forEach { theme ->
+                                DropdownMenuItem(
+                                    text = { Text(theme.name, style = MaterialTheme.typography.bodyMedium) },
+                                    leadingIcon = {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clip(CircleShape)
+                                                .background(theme.background)
+                                        )
+                                    },
+                                    onClick = {
+                                        preferences.setConsoleBgForTerminal(vm.id, activeSessionId, theme.key)
+                                        themeKey = theme.key
+                                        showThemeMenu = false
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -401,8 +428,11 @@ fun SSHTab(
         }
 
         currentSession?.let { session ->
-            ActiveSessionTerminalView(
+            RealTerminalCanvasView(
                 session = session,
+                theme = currentTheme,
+                fontSizeSp = fontSizeSp,
+                inputMode = inputMode,
                 onConfigureTunnel = onConfigureTunnel
             )
         }
@@ -410,65 +440,99 @@ fun SSHTab(
 }
 
 @Composable
-private fun ActiveSessionTerminalView(
+private fun RealTerminalCanvasView(
     session: ConsoleTabSession,
+    theme: com.pox.colab.theme.TerminalTheme,
+    fontSizeSp: Float,
+    inputMode: TerminalInputMode,
     onConfigureTunnel: () -> Unit
 ) {
     val manager = session.manager
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     val connectionState by manager.connectionState.collectAsStateWithLifecycle()
     val terminalLines by manager.terminalOutput.collectAsStateWithLifecycle()
     val statusMessage by manager.statusMessage.collectAsStateWithLifecycle()
 
     var inputCommand by remember { mutableStateOf("") }
+    val commandHistory = remember { mutableStateListOf<String>() }
+    var historyIndex by remember { mutableIntStateOf(-1) }
+
     var isCtrlActive by remember { mutableStateOf(false) }
     var isAltActive by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
+    var autoScrollLocked by remember { mutableStateOf(true) }
 
-    var autoScrollToLatest by remember { mutableStateOf(true) }
+    val listState = rememberLazyListState()
+    val liveFocusRequester = remember { FocusRequester() }
+    var rawInputValue by remember { mutableStateOf(TextFieldValue("")) }
+
+    // Blinking cursor transition
+    val infiniteTransition = rememberInfiniteTransition(label = "terminalCursor")
+    val cursorAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 530, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "cursorAlpha"
+    )
+
+    // Detect user manual scroll to toggle auto-scroll pin
     LaunchedEffect(listState) {
         var wasScrolling = false
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
             if (wasScrolling && !scrolling) {
                 val info = listState.layoutInfo
                 val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-                autoScrollToLatest = lastVisible >= info.totalItemsCount - 1
+                autoScrollLocked = lastVisible >= info.totalItemsCount - 1
             }
             wasScrolling = scrolling
         }
     }
 
     val lastLine = terminalLines.lastOrNull()
-    LaunchedEffect(lastLine?.id, lastLine?.text?.length) {
-        if (autoScrollToLatest && !listState.isScrollInProgress && terminalLines.isNotEmpty()) {
+    LaunchedEffect(lastLine?.id, lastLine?.text?.length, autoScrollLocked) {
+        if (autoScrollLocked && !listState.isScrollInProgress && terminalLines.isNotEmpty()) {
             listState.scrollToItem(terminalLines.lastIndex)
         }
     }
 
-    fun submitCommand() {
-        if (inputCommand.isBlank()) return
-        val toSend = when {
-            isCtrlActive && inputCommand.length == 1 -> {
-                val c = inputCommand.first().uppercaseChar()
-                if (c in 'A'..'Z') (c.code - 64).toChar().toString() else inputCommand
+    fun sendKeystroke(key: String) {
+        val payload = when {
+            isCtrlActive && key.length == 1 -> {
+                val c = key.first().uppercaseChar()
+                if (c in 'A'..'Z') (c.code - 64).toChar().toString() else key
             }
-            isAltActive -> "\u001b$inputCommand"
-            else -> "$inputCommand\n"
+            isAltActive -> "\u001b$key"
+            else -> key
         }
         isCtrlActive = false
         isAltActive = false
-        manager.sendCommand(toSend)
+        manager.sendInput(payload)
+    }
+
+    fun submitCommand() {
+        if (inputCommand.isBlank()) return
+        val cmd = inputCommand.trim()
+        commandHistory.add(cmd)
+        historyIndex = -1
+        manager.sendCommand("$cmd\n")
         inputCommand = ""
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // PTY Status Strip & Fast Actions Bar
         Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            color = theme.panelBg.copy(alpha = 0.85f),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -484,35 +548,88 @@ private fun ActiveSessionTerminalView(
                     }
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
                             .background(indicatorColor)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = statusMessage,
+                        text = if (connectionState == SSHConnectionState.CONNECTED) {
+                            "Online • xterm-256color • UTF-8"
+                        } else {
+                            statusMessage
+                        },
                         style = MaterialTheme.typography.labelSmall.copy(fontFamily = MonoFontFamily),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = theme.foreground.copy(alpha = 0.8f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { manager.clearOutput() }) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    // Auto-scroll pin toggle
+                    IconButton(
+                        onClick = {
+                            autoScrollLocked = !autoScrollLocked
+                            if (autoScrollLocked && terminalLines.isNotEmpty()) {
+                                listState.requestScrollToItem(terminalLines.lastIndex)
+                            }
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.DeleteSweep,
-                            contentDescription = "Clear buffer",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
+                            imageVector = Icons.Default.ArrowDownward,
+                            contentDescription = "Auto Scroll",
+                            tint = if (autoScrollLocked) theme.accentColor else theme.foreground.copy(alpha = 0.4f),
+                            modifier = Modifier.size(15.dp)
                         )
                     }
-                    IconButton(onClick = { manager.connect() }) {
+
+                    // Copy buffer
+                    IconButton(
+                        onClick = {
+                            val text = manager.getPlainTextBuffer()
+                            if (text.isNotBlank()) {
+                                clipboardManager.setText(AnnotatedString(text))
+                                Toast.makeText(context, "Terminal buffer copied to clipboard", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy Buffer",
+                            tint = theme.foreground.copy(alpha = 0.7f),
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+
+                    // Clear buffer
+                    IconButton(
+                        onClick = { manager.clearOutput() },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Clear",
+                            tint = theme.foreground.copy(alpha = 0.7f),
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+
+                    // Reconnect
+                    IconButton(
+                        onClick = { manager.connect() },
+                        modifier = Modifier.size(28.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Reconnect",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                            tint = theme.accentColor,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
@@ -524,13 +641,13 @@ private fun ActiveSessionTerminalView(
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(22.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -545,138 +662,350 @@ private fun ActiveSessionTerminalView(
                     FilledTonalButton(
                         onClick = onConfigureTunnel,
                         shape = CircleShape,
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Icon(Icons.Default.Cable, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Configure", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.Cable, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Configure", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
 
-        LazyColumn(
-            state = listState,
+        // Real Terminal Screen Viewport
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .clickable {
+                    if (inputMode == TerminalInputMode.LIVE_SHELL) {
+                        liveFocusRequester.requestFocus()
+                        keyboardController?.show()
+                    }
+                }
         ) {
-            items(terminalLines, key = { it.id }) { line ->
-                Text(
-                    text = line.text,
-                    fontFamily = MonoFontFamily,
-                    fontSize = 12.sp,
-                    color = when {
-                        line.isSystemNotice -> TerminalCyan
-                        line.text.startsWith("$") -> TerminalYellow
-                        line.text.contains("error", ignoreCase = true) -> TerminalRed
-                        else -> TerminalForeground
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                items(terminalLines, key = { it.id }) { line ->
+                    val isLast = line.id == lastLine?.id
+                    val annotated = remember(line.text, theme.foreground, theme.background) {
+                        if (line.isSystemNotice) {
+                            AnnotatedString(line.text, SpanStyle(color = theme.accentColor, fontWeight = FontWeight.SemiBold))
+                        } else {
+                            AnsiParser.parseToAnnotatedString(
+                                rawText = line.text,
+                                defaultFg = theme.foreground,
+                                defaultBg = theme.background
+                            )
+                        }
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = annotated,
+                            fontFamily = MonoFontFamily,
+                            fontSize = fontSizeSp.sp,
+                            lineHeight = (fontSizeSp * 1.34f).sp
+                        )
+                        // Live blinking terminal cursor on active prompt
+                        if (isLast && connectionState == SSHConnectionState.CONNECTED) {
+                            Text(
+                                text = "█",
+                                fontFamily = MonoFontFamily,
+                                fontSize = fontSizeSp.sp,
+                                color = theme.cursorColor,
+                                modifier = Modifier.alpha(cursorAlpha)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Invisible Live Soft Keyboard Input Connector for Live Shell Mode
+            if (inputMode == TerminalInputMode.LIVE_SHELL) {
+                BasicTextField(
+                    value = rawInputValue,
+                    onValueChange = { newVal ->
+                        val oldText = rawInputValue.text
+                        val newText = newVal.text
+                        if (newText.length > oldText.length) {
+                            val typed = newText.substring(oldText.length)
+                            sendKeystroke(typed)
+                        } else if (newText.length < oldText.length) {
+                            // Backspace sent to remote shell
+                            manager.sendInput("\u007f")
+                        }
+                        // Reset text so it never accumulates locally
+                        rawInputValue = TextFieldValue("")
                     },
-                    lineHeight = 18.sp
+                    modifier = Modifier
+                        .size(1.dp)
+                        .alpha(0f)
+                        .focusRequester(liveFocusRequester),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrect = false,
+                        imeAction = ImeAction.Default
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDefault = { manager.sendInput("\r") }
+                    ),
+                    textStyle = TextStyle(color = Color.Transparent),
+                    cursorBrush = SolidColor(Color.Transparent)
                 )
             }
         }
 
+        // Authentic Terminal Accessory Bar (Row 1: Navigation & Modifiers)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                .background(theme.panelBg)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            TerminalAccessoryKey("ESC", "Escape", onClick = { manager.sendCommand("\u001b") })
-            TerminalAccessoryKey("TAB", "Tab", onClick = { manager.sendCommand("\t") })
+            TerminalKey("ESC", "Escape", theme = theme) { sendKeystroke("\u001b") }
+            TerminalKey("TAB", "Tab", theme = theme) { sendKeystroke("\t") }
 
-            TerminalAccessoryKey(
+            TerminalKey(
                 label = "CTRL",
-                description = "Control modifier",
+                description = "Control Modifier",
                 active = isCtrlActive,
-                onClick = { isCtrlActive = !isCtrlActive }
-            )
-            TerminalAccessoryKey(
+                activeColor = theme.accentColor,
+                theme = theme
+            ) { isCtrlActive = !isCtrlActive }
+
+            TerminalKey(
                 label = "ALT",
-                description = "Alt modifier",
+                description = "Alt Modifier",
                 active = isAltActive,
-                activeContainer = MaterialTheme.colorScheme.tertiary,
-                activeContent = MaterialTheme.colorScheme.onTertiary,
-                onClick = { isAltActive = !isAltActive }
-            )
+                activeColor = MaterialTheme.colorScheme.tertiary,
+                theme = theme
+            ) { isAltActive = !isAltActive }
 
-            TerminalAccessoryKey("↑", "Arrow up", onClick = { manager.sendCommand("\u001b[A") })
-            TerminalAccessoryKey("↓", "Arrow down", onClick = { manager.sendCommand("\u001b[B") })
-            TerminalAccessoryKey("←", "Arrow left", onClick = { manager.sendCommand("\u001b[D") })
-            TerminalAccessoryKey("→", "Arrow right", onClick = { manager.sendCommand("\u001b[C") })
+            TerminalKey("↑", "History Up", theme = theme) { manager.sendSpecialKey("UP") }
+            TerminalKey("↓", "History Down", theme = theme) { manager.sendSpecialKey("DOWN") }
+            TerminalKey("←", "Cursor Left", theme = theme) { manager.sendSpecialKey("LEFT") }
+            TerminalKey("→", "Cursor Right", theme = theme) { manager.sendSpecialKey("RIGHT") }
+            TerminalKey("HOME", "Home", theme = theme) { manager.sendInput("\u001b[H") }
+            TerminalKey("END", "End", theme = theme) { manager.sendInput("\u001b[F") }
+            TerminalKey("PGUP", "Page Up", theme = theme) { manager.sendInput("\u001b[5~") }
+            TerminalKey("PGDN", "Page Down", theme = theme) { manager.sendInput("\u001b[6~") }
+        }
 
-            TerminalAccessoryKey("Ctrl+C", "Send interrupt (Ctrl+C)", onClick = { manager.sendCommand("\u0003") })
-            TerminalAccessoryKey("Ctrl+D", "Send end of file (Ctrl+D)", onClick = { manager.sendCommand("\u0004") })
-            TerminalAccessoryKey("Ctrl+Z", "Send suspend (Ctrl+Z)", onClick = { manager.sendCommand("\u001a") })
-            TerminalAccessoryKey("Clear", "Clear terminal buffer", onClick = { manager.clearOutput() })
+        // Authentic Terminal Accessory Bar (Row 2: Unix Signals, Operators & Symbols)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .background(theme.panelBg)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            TerminalKey("Ctrl+C", "Interrupt SIGINT", activeColor = statusErrorColor(), theme = theme) {
+                manager.sendCtrlC()
+            }
+            TerminalKey("Ctrl+D", "EOF", theme = theme) { manager.sendInput("\u0004") }
+            TerminalKey("Ctrl+Z", "Suspend SIGTSTP", theme = theme) { manager.sendInput("\u001a") }
+            TerminalKey("Ctrl+L", "Clear Screen", theme = theme) { manager.sendInput("\u000c") }
+
+            listOf("|", "~", "/", "\\", "-", "_", "$", "&", ">", "<", ";", ":", "\"", "'").forEach { sym ->
+                TerminalKey(sym, "Symbol $sym", theme = theme) { manager.sendInput(sym) }
+            }
 
             SSH_QUICK_COMMANDS.forEach { cmd ->
-                TerminalAccessoryKey(
-                    label = cmd,
-                    description = "Run $cmd",
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    onClick = { manager.sendCommand("$cmd\n") }
-                )
+                TerminalKey(cmd, "Run $cmd", contentColor = theme.accentColor, theme = theme) {
+                    manager.sendCommand("$cmd\n")
+                }
             }
         }
 
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            modifier = Modifier
-                .fillMaxWidth()
-                .imePadding()
-        ) {
-            Row(
+        // Bottom Input Region
+        if (inputMode == TerminalInputMode.COMMAND_BAR) {
+            Surface(
+                color = theme.panelBg,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .imePadding()
             ) {
-                OutlinedTextField(
-                    value = inputCommand,
-                    onValueChange = { inputCommand = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = {
-                        Text(
-                            text = "Enter shell command...",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFontFamily)
-                        )
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFontFamily),
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.None,
-                        autoCorrect = false,
-                        imeAction = ImeAction.Send
-                    ),
-                    keyboardActions = KeyboardActions(onSend = { submitCommand() }),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary
-                    ),
-                    shape = CircleShape
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                FilledIconButton(
-                    onClick = { submitCommand() },
-                    enabled = inputCommand.isNotBlank(),
-                    shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Execute"
+                    // History Up Button
+                    IconButton(
+                        onClick = {
+                            if (commandHistory.isNotEmpty()) {
+                                historyIndex = if (historyIndex == -1) {
+                                    commandHistory.lastIndex
+                                } else {
+                                    (historyIndex - 1).coerceAtLeast(0)
+                                }
+                                inputCommand = commandHistory[historyIndex]
+                            }
+                        },
+                        enabled = commandHistory.isNotEmpty(),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowUpward,
+                            contentDescription = "History Previous",
+                            tint = theme.foreground.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    // History Down Button
+                    IconButton(
+                        onClick = {
+                            if (commandHistory.isNotEmpty() && historyIndex != -1) {
+                                if (historyIndex < commandHistory.lastIndex) {
+                                    historyIndex++
+                                    inputCommand = commandHistory[historyIndex]
+                                } else {
+                                    historyIndex = -1
+                                    inputCommand = ""
+                                }
+                            }
+                        },
+                        enabled = historyIndex != -1,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDownward,
+                            contentDescription = "History Next",
+                            tint = theme.foreground.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = inputCommand,
+                        onValueChange = { inputCommand = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = {
+                            Text(
+                                text = "Enter shell command...",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFontFamily)
+                            )
+                        },
+                        trailingIcon = {
+                            if (inputCommand.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { inputCommand = "" },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "Clear",
+                                        tint = theme.foreground.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = MonoFontFamily,
+                            color = theme.foreground
+                        ),
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.None,
+                            autoCorrect = false,
+                            imeAction = ImeAction.Send
+                        ),
+                        keyboardActions = KeyboardActions(onSend = { submitCommand() }),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = theme.background,
+                            focusedContainerColor = theme.background,
+                            unfocusedBorderColor = theme.foreground.copy(alpha = 0.15f),
+                            focusedBorderColor = theme.accentColor
+                        ),
+                        shape = RoundedCornerShape(14.dp)
                     )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Paste button
+                    IconButton(
+                        onClick = {
+                            clipboardManager.getText()?.text?.let { text ->
+                                inputCommand += text
+                            }
+                        },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentPaste,
+                            contentDescription = "Paste",
+                            tint = theme.foreground.copy(alpha = 0.8f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    // Send Button
+                    FilledIconButton(
+                        onClick = { submitCommand() },
+                        enabled = inputCommand.isNotBlank(),
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = theme.accentColor,
+                            contentColor = Color.Black
+                        ),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Execute",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        } else {
+            // Live Shell Mode footer helper showing quick instructions
+            Surface(
+                color = theme.panelBg,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Interactive PTY Active • Tap screen for keyboard",
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = MonoFontFamily),
+                        color = theme.foreground.copy(alpha = 0.6f)
+                    )
+                    IconButton(
+                        onClick = {
+                            val clipText = clipboardManager.getText()?.text
+                            if (!clipText.isNullOrEmpty()) {
+                                manager.sendInput(clipText)
+                                Toast.makeText(context, "Pasted into shell", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentPaste,
+                            contentDescription = "Paste to shell",
+                            tint = theme.accentColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }
@@ -684,48 +1013,54 @@ private fun ActiveSessionTerminalView(
 }
 
 @Composable
-private fun TerminalAccessoryKey(
+private fun TerminalKey(
     label: String,
     description: String,
     active: Boolean = false,
-    activeContainer: Color = MaterialTheme.colorScheme.primary,
-    activeContent: Color = MaterialTheme.colorScheme.onPrimary,
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    activeColor: Color = MaterialTheme.colorScheme.primary,
+    contentColor: Color? = null,
+    theme: com.pox.colab.theme.TerminalTheme,
     onClick: () -> Unit
 ) {
     val corner by animateDpAsState(
-        targetValue = if (active) 10.dp else 20.dp,
+        targetValue = if (active) 8.dp else 14.dp,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
         ),
-        label = "keyCornerMorph"
+        label = "terminalKeyCorner"
     )
-    val bgColor by animateColorAsState(
-        targetValue = if (active) activeContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "keyBgColor"
-    )
+
+    val bgColor = when {
+        active -> activeColor
+        else -> theme.panelBg.copy(alpha = 0.85f)
+    }
+
+    val fgColor = when {
+        active -> Color.Black
+        contentColor != null -> contentColor
+        else -> theme.foreground
+    }
 
     Surface(
         shape = RoundedCornerShape(corner),
         color = bgColor,
         modifier = Modifier
             .minimumInteractiveComponentSize()
-            .defaultMinSize(minWidth = 44.dp, minHeight = 36.dp)
-            .semantics { contentDescription = description }
+            .defaultMinSize(minWidth = 38.dp, minHeight = 32.dp)
+            .semantics { this.contentDescription = description }
             .clickable(role = Role.Button, onClick = onClick)
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
         ) {
             Text(
                 text = label,
                 fontFamily = MonoFontFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (active) activeContent else contentColor
+                color = fgColor
             )
         }
     }

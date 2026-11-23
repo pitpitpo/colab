@@ -50,12 +50,5 @@ val TerminalCyan = Color(0xFF56D4DD)
 val TerminalForeground = Color(0xFFC9D1D9)
 
 fun resolveConsoleBackground(bgKey: String): Color {
-    return when (bgKey) {
-        "amoled_black" -> Color(0xFF000000)
-        "deep_charcoal" -> Color(0xFF0F1117)
-        "navy_terminal" -> Color(0xFF0A0F1D)
-        "matrix_dark" -> Color(0xFF021206)
-        "monokai_dark" -> Color(0xFF1E1F1C)
-        else -> Color(0xFF000000)
-    }
+    return TerminalThemes.resolve(bgKey).background
 }
