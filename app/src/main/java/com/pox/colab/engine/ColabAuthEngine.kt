@@ -137,6 +137,32 @@ object ColabAuthEngine {
     }
 
     /**
+     * Extracts the OAuth authorization code or bearer token from either raw pasted text
+     * or a full Google redirect URL containing `?code=...`.
+     */
+    internal fun extractCodeOrToken(rawInput: String): String {
+        val trimmed = rawInput.trim()
+        if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+            val query = trimmed.substringAfter("?", missingDelimiterValue = "").substringBefore("#")
+            if (query.isNotEmpty()) {
+                for (pair in query.split("&")) {
+                    val eqIdx = pair.indexOf('=')
+                    if (eqIdx > 0) {
+                        val key = pair.substring(0, eqIdx)
+                        if (key == "code") {
+                            val rawVal = pair.substring(eqIdx + 1)
+                            return runCatching {
+                                java.net.URLDecoder.decode(rawVal, StandardCharsets.UTF_8.name())
+                            }.getOrDefault(rawVal).trim()
+                        }
+                    }
+                }
+            }
+        }
+        return trimmed
+    }
+
+    /**
      * Exchanges the authorization code received from Google's applicationdefaultauthcode.html
      * landing page for OAuth credentials using PKCE verification, then concurrently fetches
      * Google user info (when needed) and detects Colab compute unit subscription tier.
@@ -145,7 +171,7 @@ object ColabAuthEngine {
         inputCodeOrToken: String,
         session: ColabAuthSession? = null
     ): Result<OAuthUserProfile> = withContext(Dispatchers.IO) {
-        val trimmed = inputCodeOrToken.trim()
+        val trimmed = extractCodeOrToken(inputCodeOrToken)
         if (trimmed.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("Authorization code cannot be empty"))
         }
@@ -267,6 +293,18 @@ object ColabAuthEngine {
             )
         } catch (e: CancellationException) {
             throw e
+        } catch (_: java.net.UnknownHostException) {
+            Result.failure(
+                Exception("Cannot reach oauth2.googleapis.com — no internet or DNS access on this device. Connect to Wi-Fi or mobile data and tap Connect again.")
+            )
+        } catch (_: java.net.SocketTimeoutException) {
+            Result.failure(
+                Exception("Connection to Google OAuth timed out. Check your network connection and try again.")
+            )
+        } catch (_: java.net.ConnectException) {
+            Result.failure(
+                Exception("Unable to connect to Google OAuth servers. Check your internet connection or VPN/firewall settings.")
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }

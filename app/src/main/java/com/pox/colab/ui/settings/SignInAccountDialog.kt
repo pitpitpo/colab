@@ -3,6 +3,8 @@ package com.pox.colab.ui.settings
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,6 +66,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private fun hasActiveInternet(context: Context): Boolean {
+    return try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    } catch (_: Exception) {
+        true
+    }
+}
+
 @Composable
 fun SignInAccountDialog(
     onDismiss: () -> Unit,
@@ -72,9 +88,11 @@ fun SignInAccountDialog(
     var authCode by remember { mutableStateOf("") }
     var isAuthenticating by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
+    var isDeviceOffline by remember { mutableStateOf(!hasActiveInternet(context)) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(context) {
+        isDeviceOffline = !hasActiveInternet(context)
         try {
             authSession = withContext(Dispatchers.IO) {
                 AlpineAppContainerManager.getInstance(context).createInstanceAndGenerateAuthLink()
@@ -125,6 +143,32 @@ fun SignInAccountDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                if (isDeviceOffline) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.WifiOff,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Device appears offline. Turn on Wi-Fi or mobile data before connecting.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
 
                 Surface(
                     shape = RoundedCornerShape(22.dp),
@@ -200,23 +244,31 @@ fun SignInAccountDialog(
 
                 OutlinedTextField(
                     value = authCode,
-                    onValueChange = { authCode = it.trim() },
+                    onValueChange = {
+                        authCode = it.trim()
+                        if (authError != null) authError = null
+                    },
                     label = { Text("Authorization Code") },
-                    placeholder = { Text("Paste Google code (4/...)") },
+                    placeholder = { Text("Paste Google code (4/...) or callback URL") },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFontFamily),
                     leadingIcon = {
                         Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(20.dp))
                     },
                     trailingIcon = {
                         if (authCode.isNotEmpty()) {
-                            IconButton(onClick = { authCode = "" }) {
+                            IconButton(onClick = {
+                                authCode = ""
+                                authError = null
+                            }) {
                                 Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
                             }
                         }
                     },
                     isError = authError != null,
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("signin_auth_code_input"),
                     shape = RoundedCornerShape(18.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -241,6 +293,7 @@ fun SignInAccountDialog(
                         return@Button
                     }
                     val session = authSession ?: return@Button
+                    isDeviceOffline = !hasActiveInternet(context)
                     isAuthenticating = true
                     authError = null
                     scope.launch {
@@ -248,6 +301,7 @@ fun SignInAccountDialog(
                             val profile = ColabAuthEngine.exchangeCodeForProfile(authCode, session)
                             onConfirm(profile.email, profile.displayName, profile.accessToken, profile.tier, profile.tokenJson)
                         } catch (e: Exception) {
+                            isDeviceOffline = !hasActiveInternet(context)
                             authError = e.message ?: "Authentication failed"
                         } finally {
                             isAuthenticating = false
@@ -255,7 +309,8 @@ fun SignInAccountDialog(
                     }
                 },
                 enabled = !isAuthenticating && authSession != null && authCode.isNotBlank(),
-                shape = CircleShape
+                shape = CircleShape,
+                modifier = Modifier.testTag("signin_connect_button")
             ) {
                 if (isAuthenticating) {
                     CircularProgressIndicator(

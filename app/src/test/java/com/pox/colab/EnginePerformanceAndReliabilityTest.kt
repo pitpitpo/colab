@@ -226,4 +226,22 @@ class EnginePerformanceAndReliabilityTest {
         assertSame(api.dispatcher, fast.dispatcher)
         assertSame(api.dispatcher, telemetry.dispatcher)
     }
+
+    @Test
+    fun `ColabAuthEngine extractCodeOrToken parses raw codes, callback URLs, and bearer tokens`() {
+        assertEquals(
+            "4/0AeaYSHAbc123_xyz",
+            com.pox.colab.engine.ColabAuthEngine.extractCodeOrToken("  4/0AeaYSHAbc123_xyz \n")
+        )
+        assertEquals(
+            "4/0AeaYSHAbc123_xyz",
+            com.pox.colab.engine.ColabAuthEngine.extractCodeOrToken(
+                "https://sdk.cloud.google.com/applicationdefaultauthcode.html?state=abc&code=4%2F0AeaYSHAbc123_xyz&scope=openid"
+            )
+        )
+        assertEquals(
+            "ya29.a0AfB_test_token",
+            com.pox.colab.engine.ColabAuthEngine.extractCodeOrToken("ya29.a0AfB_test_token")
+        )
+    }
 }

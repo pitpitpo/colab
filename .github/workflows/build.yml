@@ -37,22 +37,31 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+          validate-wrappers: false
 
-      - name: Restore Signing Keystore
+      - name: Accept Android SDK Licenses
+        run: |
+          if [ -n "$ANDROID_HOME" ] && [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          fi
+
+      - name: Ensure Signing Keystore
         run: |
           if [ ! -f debug.keystore ]; then
             if [ -f debug.keystore.base64 ]; then
               tr -d '\r\n' < debug.keystore.base64 | base64 -d > debug.keystore
             else
-              keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+              keytool -genkeypair -v -keystore debug.keystore \
+                -storetype PKCS12 -storepass android -keypass android \
+                -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
             fi
           fi
 
-      - name: Make Gradlew Executable
-        run: chmod +x gradlew
-
       - name: Run Android Lint
-        run: ./gradlew lintDebug --stacktrace
+        run: gradle lintDebug --stacktrace
 
       - name: Upload Lint Report
         if: always()
@@ -83,22 +92,31 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+          validate-wrappers: false
 
-      - name: Restore Signing Keystore
+      - name: Accept Android SDK Licenses
+        run: |
+          if [ -n "$ANDROID_HOME" ] && [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          fi
+
+      - name: Ensure Signing Keystore
         run: |
           if [ ! -f debug.keystore ]; then
             if [ -f debug.keystore.base64 ]; then
               tr -d '\r\n' < debug.keystore.base64 | base64 -d > debug.keystore
             else
-              keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+              keytool -genkeypair -v -keystore debug.keystore \
+                -storetype PKCS12 -storepass android -keypass android \
+                -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
             fi
           fi
 
-      - name: Make Gradlew Executable
-        run: chmod +x gradlew
-
       - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: gradle testDebugUnitTest --stacktrace
 
   # -------------------------------------------------------------
   # Job 3: Build & Package (Debug + Release APKs + AAB)
@@ -123,28 +141,37 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+          validate-wrappers: false
 
-      - name: Restore Signing Keystore
+      - name: Accept Android SDK Licenses
+        run: |
+          if [ -n "$ANDROID_HOME" ] && [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          fi
+
+      - name: Ensure Signing Keystore
         run: |
           if [ ! -f debug.keystore ]; then
             if [ -f debug.keystore.base64 ]; then
               tr -d '\r\n' < debug.keystore.base64 | base64 -d > debug.keystore
             else
-              keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+              keytool -genkeypair -v -keystore debug.keystore \
+                -storetype PKCS12 -storepass android -keypass android \
+                -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
             fi
           fi
 
-      - name: Make Gradlew Executable
-        run: chmod +x gradlew
-
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease --stacktrace
+        run: gradle assembleRelease --stacktrace
 
       - name: Build Release App Bundle (AAB)
-        run: ./gradlew bundleRelease --stacktrace
+        run: gradle bundleRelease --stacktrace
 
       - name: Prepare Output Artifacts
         run: |
@@ -214,9 +241,15 @@ jobs:
         continue-on-error: true
 
       - name: Generate Checksums
+        shell: bash
         run: |
           cd release-assets/
-          sha256sum * > SHA256SUMS.txt
+          rm -f SHA256SUMS.txt
+          shopt -s nullglob
+          files=(colab-*)
+          if [ ${#files[@]} -gt 0 ]; then
+            sha256sum "${files[@]}" > SHA256SUMS.txt
+          fi
           echo "=== Artifact SHA256 Checksums ==="
           cat SHA256SUMS.txt
 
@@ -237,6 +270,7 @@ jobs:
             - **`SHA256SUMS.txt`**: Cryptographic integrity checksums
           draft: false
           prerelease: true
+          make_latest: false
           files: |
             release-assets/*
         env:
