@@ -449,6 +449,7 @@ private fun RealTerminalCanvasView(
 ) {
     val manager = session.manager
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -575,7 +576,7 @@ private fun RealTerminalCanvasView(
                         onClick = {
                             autoScrollLocked = !autoScrollLocked
                             if (autoScrollLocked && terminalLines.isNotEmpty()) {
-                                listState.requestScrollToItem(terminalLines.lastIndex)
+                                scope.launch { listState.scrollToItem(terminalLines.lastIndex) }
                             }
                         },
                         modifier = Modifier.size(28.dp)
@@ -749,10 +750,10 @@ private fun RealTerminalCanvasView(
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.None,
                         autoCorrect = false,
-                        imeAction = ImeAction.Default
+                        imeAction = ImeAction.Send
                     ),
                     keyboardActions = KeyboardActions(
-                        onDefault = { manager.sendInput("\r") }
+                        onSend = { manager.sendInput("\r") }
                     ),
                     textStyle = TextStyle(color = Color.Transparent),
                     cursorBrush = SolidColor(Color.Transparent)
